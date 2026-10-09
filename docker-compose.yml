@@ -1,0 +1,112 @@
+# GPT-Image2-Studio — Docker Compose deployment
+#
+#   cp deploy/env.example .env      # then fill in the token and API keys
+#   docker compose up -d --build
+#
+# Access:
+#   local only   http://127.0.0.1:3600
+#   LAN / TLS    docker compose --profile tls up -d --build
+#
+# `.env` is read twice: by Compose for ${...} interpolation, and injected into
+# the studio container as its application configuration.
+name: gpt-image2-studio
+
+services:
+  studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gpt-image2-studio:${STUDIO_TAG:-latest}
+    container_name: gpt-image2-studio
+    restart: unless-stopped
+    # Reaps zombies and forwards signals to `node server.mjs`, which installs no
+    # signal handlers of its own.
+    init: true
+    env_file:
+      - .env
+    # Retention limits are NOT repeated here: they travel in through env_file
+    # and their defaults live in docker/retention-gc.mjs. See the
+    # "Retention" section of deploy/env.example to change them.
+    environment:
+      PORT: "3600"
+      # The published port only works if the process listens on a non-loopback
+      # address, which in turn requires the acknowledgement flag below.
+      HOST: "0.0.0.0"
+      IMAGE_STUDIO_ALLOW_INSECURE_REMOTE_HTTP: "1"
+      # Docker already supplies a working resolver. The application's own
+      # public-DNS fallback (223.5.5.5 / 1.1.1.1) only adds a slow path and a
+      # failure mode inside a container, so keep it off.
+      IMAGE_STUDIO_DISABLE_DNS_FALLBACK: "1"
+      # A single volume backs everything. Note the gallery index is written to
+      # dirname(IMAGE_STUDIO_OUTPUT_DIR)/.local/gallery-index.json, so both
+      # values must stay under /data to remain on the volume.
+      IMAGE_STUDIO_OUTPUT_DIR: "/data/output"
+      IMAGE_STUDIO_LOCAL_DATA_DIR: "/data"
+      # Fails `docker compose config` early instead of silently starting with a
+      # random token that the user would have to dig out of the logs. The
+      # message is kept free of ":" to avoid any interpolation ambiguity.
+      IMAGE_STUDIO_REQUEST_TOKEN: "${IMAGE_STUDIO_REQUEST_TOKEN:?set IMAGE_STUDIO_REQUEST_TOKEN in .env (openssl rand -hex 32)}"
+      TZ: "${TZ:-Asia/Shanghai}"
+    ports:
+      # Host loopback only. The Caddy edge still reaches studio:3600 over the
+      # Compose network, where published ports are irrelevant.
+      - "127.0.0.1:${STUDIO_PORT:-3600}:3600"
+    volumes:
+      - studio-data:/data
+    # No tmpfs for /app/artifacts here on purpose: the Chrome extension archive
+    # build is Windows-only upstream, so on Linux nothing ever writes there.
+    # Add it back together with `read_only: true` — see docs/docker-deployment.md.
+    healthcheck:
+      # Quoted on purpose: the probe contains ":" and "?" characters that are
+      # safer not left to the YAML plain-scalar rules.
+      test:
+        - CMD
+        - node
+        - -e
+        - 'fetch("http://127.0.0.1:3600/").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'
+      interval: 30s
+      timeout: 5s
+      start_period: 25s
+      retries: 3
+    stop_grace_period: 15s
+    # Generation requests are long-lived (up to 20 minutes by default) but the
+    # UI traffic is ordinary HTTP, so default JSON-file logging with a cap is
+    # enough.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional TLS edge. Enabled only by `--profile tls`.
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: gpt-image2-studio-edge
+    profiles: ["tls"]
+    restart: unless-stopped
+    depends_on:
+      studio:
+        condition: service_healthy
+    # Only the two variables Caddy actually needs. Deliberately NOT env_file:
+    # the edge has no business holding the provider API keys.
+    environment:
+      STUDIO_DOMAIN: "${STUDIO_DOMAIN:?set STUDIO_DOMAIN in .env (public hostname, or localhost)}"
+      ACME_EMAIL: "${ACME_EMAIL:-}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  studio-data:
+  caddy-data:
+  caddy-config:

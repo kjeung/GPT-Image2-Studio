@@ -174,6 +174,18 @@ test("local asset deletion APIs support batches, legacy Gallery input, and stora
   assert.equal(await pathExists(pptAssets.assetDir), false);
   assert.equal(await pathExists(pptAssets.metadataDir), false);
 
+  // Deliberate behaviour change in this fork.
+  //
+  // Upstream, a manifest holding invalid JSON threw out of the store and this
+  // endpoint answered 500 — permanently, until someone removed the file by
+  // hand. lib/safe-json-file.mjs now quarantines unreadable JSON (renames it
+  // aside) and reports it as absent, so one damaged file can no longer keep an
+  // endpoint broken. Without the manifest the store cannot learn the set's
+  // relativeDir, so the set reports as not found and its images are left on
+  // disk — exactly what happened before, minus the 500.
   const corrupt = await postJson(baseUrl, "/api/article-illustration/sets/delete", { setIds: ["article-corrupt"] });
-  assert.equal(corrupt.response.status, 500);
+  assert.equal(corrupt.response.status, 200);
+  assert.deepEqual(corrupt.payload.notFoundSetIds, ["article-corrupt"]);
+  assert.equal(await pathExists(articleStore.manifestPath("article-corrupt")), false);
+  assert.equal(await pathExists(`${articleStore.manifestPath("article-corrupt")}.corrupt`), true);
 });

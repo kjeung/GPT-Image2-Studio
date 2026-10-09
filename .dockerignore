@@ -1,0 +1,54 @@
+# Build context filter for the GPT-Image2-Studio image.
+#
+# Docker matches these patterns against paths relative to the context root and
+# "*" never crosses "/", so a bare "*.md" or "test" already only matches at the
+# root — this is NOT gitignore semantics. The leading "/" below is therefore
+# explicit documentation of that intent rather than a functional necessity.
+# The real trap is a "**"-prefixed pattern: "**/*.md" would swallow
+# public/assets/**/ATTRIBUTION.md and
+# extensions/product-image-collector/README.md, which ship with the app.
+
+# --- VCS and editor noise -------------------------------------------------
+.git
+.gitattributes
+.github
+
+# --- Host-side dependencies and build output ------------------------------
+# Both forms are listed so a nested node_modules (there should not be one) is
+# caught as well as the root one.
+node_modules
+**/node_modules
+/artifacts
+/dist
+/output
+/outputs
+/test-results
+
+# --- Secrets: provider keys belong in the Compose env file, not the image ---
+.env
+.env.*
+
+# --- Windows desktop shell, not used by server.mjs ------------------------
+/desktop
+/build
+/launch-studio.cmd
+/launch-studio.ps1
+/stop-studio-services.cmd
+/scripts
+
+# --- Test, spec and documentation material ---------------------------------
+/test
+/openspec
+/docs
+/examples
+/README.md
+/README.zh-CN.md
+/CONTRIBUTING.md
+/SECURITY.md
+
+# --- The Docker deployment files themselves --------------------------------
+/Dockerfile
+/.dockerignore
+/docker-compose.yml
+/docker-compose.*.yml
+/deploy

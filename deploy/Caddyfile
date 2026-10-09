@@ -1,0 +1,69 @@
+# Caddy edge for GPT-Image2-Studio.
+#
+# Terminates TLS for $STUDIO_DOMAIN and forwards to the "studio" service.
+#
+# Authentication is deliberately NOT configured here. The application already
+# guards every non-loopback request: it replies 401 with
+# `WWW-Authenticate: Basic realm="GPT-Image2-Studio"`, username "studio" and
+# the value of IMAGE_STUDIO_REQUEST_TOKEN as the password, and Caddy passes
+# that challenge through to the browser. Keeping one auth boundary avoids the
+# classic mistake of injecting the token header here, which would authenticate
+# every caller that can reach this port.
+#
+# If you do want a prompt-free experience, inject the header AND add your own
+# basic_auth, otherwise the port becomes unauthenticated. The edge does not
+# receive IMAGE_STUDIO_REQUEST_TOKEN (see docker-compose.yml), so add it to the
+# caddy service's `environment:` as well before uncommenting:
+#
+#	reverse_proxy studio:3600 {
+#		header_up X-Image-Studio-Token {$IMAGE_STUDIO_REQUEST_TOKEN}
+#		flush_interval -1
+#	}
+
+# Global options. Left disabled on purpose: an unset ACME_EMAIL would expand to
+# an empty argument and `email` would then fail to parse, taking the whole
+# config down. Certificate expiry mail is optional — uncomment and set
+# ACME_EMAIL in .env if you want it.
+#
+# {
+# 	email {$ACME_EMAIL}
+# }
+
+{$STUDIO_DOMAIN} {
+	# No request body limit is configured anywhere on this path, on purpose:
+	# local masks may be 50 MB and preview snapshots 32 MB. (nginx would need
+	# `client_max_body_size 0` here; Caddy has no default limit.)
+	#
+	# No read/write timeouts either: a single "creation suite" item may stream
+	# for IMAGE_STUDIO_CREATION_UPSTREAM_TIMEOUT_MS (20 minutes by default).
+
+	# Compress only text assets, and match them by regexp rather than by `path`
+	# wildcards: `path *.css` matches only root-level files, whereas these
+	# assets mostly live under /lib/ and /assets/. The API surface is never
+	# transformed — the generation progress feeds are Server-Sent Events, and
+	# any buffering or re-encoding of text/event-stream breaks incremental
+	# delivery. Already-compressed formats (png/jpg/webp/ico/woff2) are
+	# deliberately excluded.
+	@static path_regexp \.(js|mjs|css|html|svg|webmanifest|txt)$
+	encode @static zstd gzip
+
+	reverse_proxy studio:3600 {
+		# Forward each response chunk the moment it is written instead of
+		# buffering a whole response body first.
+		flush_interval -1
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}
