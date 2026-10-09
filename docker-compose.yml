@@ -3,9 +3,15 @@
 #   cp deploy/env.example .env      # then fill in the token and API keys
 #   docker compose up -d --build
 #
+# This file deploys ONLY the studio. It deliberately ships no reverse proxy:
+# which one you run is your call, and the application has no opinion beyond a
+# few hard requirements (no SSE buffering, no read timeout, no request body
+# limit, TLS termination) documented in docs/docker-deployment.md.
+#
 # Access:
-#   local only   http://127.0.0.1:3600
-#   LAN / TLS    docker compose --profile tls up -d --build
+#   local   http://127.0.0.1:3600 — the port is published to host loopback only
+#   remote  put your own TLS-terminating proxy in front; see "接入自己的反代"
+#           in docs/docker-deployment.md, including the external network below.
 #
 # `.env` is read twice: by Compose for ${...} interpolation, and injected into
 # the studio container as its application configuration.
@@ -48,11 +54,19 @@ services:
       IMAGE_STUDIO_REQUEST_TOKEN: "${IMAGE_STUDIO_REQUEST_TOKEN:?set IMAGE_STUDIO_REQUEST_TOKEN in .env (openssl rand -hex 32)}"
       TZ: "${TZ:-Asia/Shanghai}"
     ports:
-      # Host loopback only. The Caddy edge still reaches studio:3600 over the
-      # Compose network, where published ports are irrelevant.
+      # Host loopback only, so nothing is exposed until you put a proxy in front.
+      # Drop the "127.0.0.1:" prefix only if you accept plaintext HTTP on your
+      # LAN — the token, prompts and generated assets all travel unencrypted.
       - "127.0.0.1:${STUDIO_PORT:-3600}:3600"
     volumes:
       - studio-data:/data
+    # Attach to the reverse proxy's network when it lives in another Compose
+    # project (Traefik, nginx-proxy, ...). Create it once with:
+    #   docker network create proxy
+    # then uncomment both here and `proxy:` under networks below.
+    # networks:
+    #   - default
+    #   - proxy
     # No tmpfs for /app/artifacts here on purpose: the Chrome extension archive
     # build is Windows-only upstream, so on Linux nothing ever writes there.
     # Add it back together with `read_only: true` — see docs/docker-deployment.md.
@@ -78,35 +92,12 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Optional TLS edge. Enabled only by `--profile tls`.
-  caddy:
-    image: caddy:2.8-alpine
-    container_name: gpt-image2-studio-edge
-    profiles: ["tls"]
-    restart: unless-stopped
-    depends_on:
-      studio:
-        condition: service_healthy
-    # Only the two variables Caddy actually needs. Deliberately NOT env_file:
-    # the edge has no business holding the provider API keys.
-    environment:
-      STUDIO_DOMAIN: "${STUDIO_DOMAIN:?set STUDIO_DOMAIN in .env (public hostname, or localhost)}"
-      ACME_EMAIL: "${ACME_EMAIL:-}"
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
 volumes:
   studio-data:
-  caddy-data:
-  caddy-config:
+
+networks:
+  default:
+  # Shared bridge with your reverse proxy. External, so Compose never tries to
+  # create or delete it.
+  # proxy:
+  #   external: true

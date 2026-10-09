@@ -30,8 +30,9 @@ FROM node:22-bookworm-slim AS runtime
 # non-loopback address to be reachable through a published port, and the server
 # refuses that over plain HTTP unless the risk is explicitly acknowledged — so
 # IMAGE_STUDIO_ALLOW_INSECURE_REMOTE_HTTP=1 is mandatory here. The plaintext
-# leg is confined to the Compose network and the host loopback publish; use the
-# bundled Caddy edge (profile "tls") for anything beyond localhost.
+# leg is confined to the host loopback publish or the container network; expose
+# the studio beyond localhost only through your own TLS-terminating proxy (see
+# docs/docker-deployment.md).
 ENV NODE_ENV=production \
     PORT=3600 \
     HOST=0.0.0.0 \

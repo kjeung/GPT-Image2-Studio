@@ -1,7 +1,7 @@
 # Docker 部署方案 — GPT-Image2-Studio
 
 > 面向 v0.2.046（commit `457f43b`）。本文档配套 `Dockerfile`、`.dockerignore`、
-> `docker-compose.yml`、`deploy/Caddyfile`、`deploy/env.example`。
+> `docker-compose.yml`、`deploy/env.example`。
 
 ## 一、项目运行时画像
 
@@ -60,10 +60,10 @@ if (!allowed) throw new Error("非回环 HOST 不能直接使用明文 HTTP…�
 风险是可控的，因为明文那一段被限制在两种不会出网的路径上：
 
 - 宿主机端口只发布到 `127.0.0.1`（默认配置）；
-- 或仅暴露在 Compose 内部网络，由 Caddy 终结 TLS。
+- 或仅暴露在容器内网，由你的反向代理终结 TLS。
 
 **唯一不能做的事**：把 `3600` 直接发布到 `0.0.0.0` 当成"远程访问"。那会让令牌、提示词和
-生成结果全部以明文过网。需要远程访问就走 `--profile tls`。
+生成结果全部以明文过网。需要远程访问就按第四节接一个反代。
 
 ### 2. 远程认证：Basic 认证 + 令牌，边界在应用里
 
@@ -75,10 +75,11 @@ if (!allowed) throw new Error("非回环 HOST 不能直接使用明文 HTTP…�
 
 实测确认：令牌头注入、Basic 认证都能放行，错误令牌被拒。
 
-由此得到一个关键设计决定：**反向代理只做 TLS，不注入令牌、不做认证**。
-理由——如果在 Caddy 里 `header_up X-Image-Studio-Token`，等于把"能连到 443 的人"全部认证为合法用户，
+由此得到一个关键设计决定：**默认让反代只做 TLS，不注入令牌、不代做认证**。
+理由——一旦在反代里加上 `X-Image-Studio-Token` 头，等于把"能连到 443 的人"全部认证为合法用户，
 反而绕过了应用自带的认证。保持单一认证边界更安全，代价只是浏览器弹一次账号密码框
 （用户名 `studio`，密码 = `IMAGE_STUDIO_REQUEST_TOKEN`）。
+只有在把鉴权前移到 SSO（如 Authentik）时，才应该改成注入令牌头，且必须确保应用端口不可绕过反代。
 
 顺带一个安全优势：应用判断来源用的是 **TCP 对端地址**，不是 `X-Forwarded-For`，
 所以伪造 XFF 无法绕过鉴权。
@@ -91,14 +92,17 @@ if (!allowed) throw new Error("非回环 HOST 不能直接使用明文 HTTP…�
 
 → Compose 里固定 `IMAGE_STUDIO_DISABLE_DNS_FALLBACK=1`。
 
-### 4. 反向代理的两个硬约束
+### 4. 反向代理的硬约束
 
-- **SSE 不能缓冲**。生成进度走 `text/event-stream`（`server.mjs:2132/2244/2354`），
-  所以 Caddy 侧 `flush_interval -1`，且 `encode` 只作用于静态资源后缀，绝不压缩 `/api`。
+仓库不带反代，但这几条要求换任何实现都成立，不满足就会表现为"生成到一半断掉""大图 413"
+"流式进度不动"。完整清单与 Traefik 示例见第四节 4.2 / 4.3：
+
+- **SSE 不能缓冲**。生成进度走 `text/event-stream`（`server.mjs:2132/2244/2354`），代理必须逐块转发；
+  nginx 要 `proxy_buffering off`，Traefik 默认即可。
 - **不能设读超时**。单个套图项上游超时默认 **20 分钟**（`IMAGE_STUDIO_CREATION_UPSTREAM_TIMEOUT_MS=1200000`），
-  代理任何 `read_timeout` / `write_timeout` 都会掐断长流。Caddy 默认不设这两个值，正合适。
-- 反之**请求体不能限制**：本地蒙版 50 MB、预览快照 32 MB。
-  Caddy 默认无上限；**若换 nginx 必须 `client_max_body_size 0`**（nginx 默认 1 MB 会直接 413）。
+  代理任何 `read_timeout` / `write_timeout` 都会掐断长流。
+- **请求体不能限制**：本地蒙版 50 MB、预览快照 32 MB。
+  **nginx 默认 `client_max_body_size 1m` 会直接 413，必须设成 `0`**；Traefik 无默认上限。
 
 ## 三、镜像构建方案
 
@@ -129,29 +133,23 @@ stage runtime  COPY --from=deps node_modules，再 COPY server.mjs/lib/public/ex
 
 镜像体积预估 ≈ 330 MB（`public/` 175 MB + `node_modules` 154 MB 是主要部分，无法再压）。
 
-## 四、三种部署形态
+## 四、部署形态与接入自己的反代
+
+本仓库**只部署 studio 本身，不带任何反向代理**。用哪个反代是你的选择，应用对此没有意见——
+只有几条硬性要求（见 4.2）。`docker-compose.yml` 里预留了一个外部网络，方便接入独立部署的反代。
 
 | 形态 | 命令 | 适用 |
 | --- | --- | --- |
 | A. 本机单机 | `docker compose up -d --build` | 只在自己机器上用，端口只发布到 `127.0.0.1` |
-| B. 局域网 / 公网 + TLS | `docker compose --profile tls up -d --build` | 需要远程访问，Caddy 自动签发证书 |
-| C. 已有入口 | 只跑 `studio`，把 `studio:3600` 接到现有 nginx/Traefik | 已有反代体系，注意第三节的两个硬约束 |
+| B. 接自己的反代 | 见 4.3 | 需要远程访问；由你的反代终结 TLS 并转发 `studio:3600` |
 
-### 快速开始
+### 4.1 快速开始
 
 ```bash
 cp deploy/env.example .env
 # 填 IMAGE_STUDIO_REQUEST_TOKEN（openssl rand -hex 32）和 API Key
 docker compose up -d --build
 # 访问 http://127.0.0.1:3600
-```
-
-开启 TLS：
-
-```bash
-# 在 .env 中设置 STUDIO_DOMAIN（公网域名；本机自签填 localhost）
-docker compose --profile tls up -d
-# 访问 https://<STUDIO_DOMAIN>，浏览器弹框输入 studio / <令牌>
 ```
 
 不用 Compose 直接跑（注意 `.env` 不会被自动读取，要显式 `--env-file`）：
@@ -170,6 +168,58 @@ docker logs studio | head          # 启动横幅会打印 远程访问令牌 / 
 
 > 构建阶段用了 `RUN --mount=type=cache`（缓存 npm 下载），需要 BuildKit。
 > `docker compose build` 与 Docker 23+ 的 `docker build` 默认就是 BuildKit，正常无需处理。
+
+### 4.2 反代必须满足的四条
+
+这四条与具体实现无关，换任何反代都要满足；不满足会表现为"生成到一半断掉""大图 413""流式进度不动"：
+
+1. **不缓冲响应**。生成进度是 SSE（`text/event-stream`），代理必须逐块转发。
+   nginx 要 `proxy_buffering off`，Traefik 默认即可。
+2. **不设读/写超时**。单个套图项上游超时默认 **20 分钟**
+   （`IMAGE_STUDIO_CREATION_UPSTREAM_TIMEOUT_MS=1200000`），任何 `read_timeout` 都会掐断长流。
+3. **不限制请求体**。本地蒙版 50 MB、预览快照 32 MB。
+   **nginx 默认 `client_max_body_size 1m` 会直接 413，必须设成 `0`**；Traefik 无默认上限。
+4. **终结 TLS**。应用在容器内只能监听明文（见第二节 1），TLS 必须由反代提供。
+   反代到应用这一段是容器内网明文，属于可接受的边界。
+
+### 4.3 Traefik 示例
+
+Traefik 独立部署时，让两边共用一个 bridge 网络即可：
+
+```bash
+docker network create proxy
+```
+
+在本仓库的 `docker-compose.yml` 中取消两处注释（`studio` 的 `networks` 与文件末尾的 `proxy:`），
+然后在 Traefik 侧用 file provider 配置路由：
+
+```yaml
+# traefik 动态配置（示意）
+http:
+  routers:
+    studio:
+      rule: Host(`studio.example.com`)
+      entryPoints: [websecure]
+      tls:
+        certResolver: le
+      service: studio
+  services:
+    studio:
+      loadBalancer:
+        servers:
+          - url: "http://gpt-image2-studio:3600"   # 容器名，走 proxy 网络
+```
+
+Traefik 默认就不缓冲、不设读超时、不限请求体，所以上面**不需要**额外加中间件——
+不要给它挂 `buffering` 或 `forwardAuth` 之外做缓冲的东西。
+
+> 认证由**应用自己**负责：非回环请求会返回 401 + Basic 挑战（用户名 `studio`，密码是
+> `IMAGE_STUDIO_REQUEST_TOKEN`），反代只需把响应透传，**不要在反代里注入
+> `x-image-studio-token`**——那等于把"能连到 443 的人"全部认证为合法用户，反而绕过了应用的认证。
+> 应用判断来源用的是 **TCP 对端地址而非 `X-Forwarded-For`**，所以伪造 XFF 也无法绕过鉴权。
+> 需要单点登录（如 Authentik）时，鉴权前移到反代，此时才应该改为注入令牌头，
+> 但必须同时确保应用端口**绝对不可绕过反代**。
+
 
 ## 五、保留策略与 JSON 加固（本 fork 的源码改动）
 
@@ -310,7 +360,7 @@ JSON 加固跑了 17 条断言：损坏 sidecar 不再让画廊 500 且被隔离
   `product-image-*` / `native-host` 用例在**未修改的 main 上同样失败**——它们需要 Windows/MSVC。
   改动后结果与 main 基线逐文件一致，**净回归为零**。
 
-**未验证**：镜像 build 与容器运行本身、Caddy 配置加载、Compose 端口/卷编排。
+**未验证**：镜像 build 与容器运行本身、Compose 端口/卷编排、以及接入具体反代后的端到端链路。
 
 ## 七、已知限制
 
@@ -386,7 +436,7 @@ docker compose exec studio find /data -name '*.corrupt' -ls
 | 容器反复重启，日志有"非回环 HOST 不能直接使用明文 HTTP" | 少了 `IMAGE_STUDIO_ALLOW_INSECURE_REMOTE_HTTP=1`，或被你在 `.env` 里把 `HOST` 覆盖成了空 |
 | `docker compose config` 报 `set IMAGE_STUDIO_REQUEST_TOKEN in .env` | 令牌为空，按提示生成一个 |
 | 浏览器一直弹认证框 | 用户名必须是 `studio`，密码是**令牌**，不是 API Key |
-| 生成到一半连接断掉 | 前面还有一层自建代理设了读超时；本方案 Caddy 侧不设超时 |
+| 生成到一半连接断掉 | 你接的反代设了读超时，或缓冲了 SSE；对照第四节 4.2 |
 | 上传大图 413 | 前面是 nginx 且没设 `client_max_body_size 0` |
 | 生成结果重启后消失 | `/data` 没挂上卷，或改了 `OUTPUT_DIR` 却让它跑到卷外 |
 | 卷一直涨、不收敛 | `STUDIO_RETENTION_ENABLED=0`，或数值非法被回落成了默认值（日志里会有警告） |
