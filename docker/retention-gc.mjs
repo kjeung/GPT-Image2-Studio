@@ -39,10 +39,12 @@ const args = new Set(process.argv.slice(2));
 function envInt(name, fallback) {
   const raw = String(process.env[name] ?? "").trim();
   if (!raw) return fallback;
-  const value = Number.parseInt(raw, 10);
-  // The retention floor is 1: "keep nothing" is not a supported configuration,
-  // it would silently turn the studio into a black hole.
-  if (!Number.isFinite(value) || value < 1) {
+  // Require a plain decimal integer instead of handing the string to
+  // Number.parseInt, which quietly reads "1e3" as 1 and "12abc" as 12. The
+  // retention floor is 1, so a silently truncated value deletes almost every
+  // asset — not a mistake a destructive setting should be able to make quietly.
+  const value = /^\d+$/u.test(raw) ? Number.parseInt(raw, 10) : Number.NaN;
+  if (!Number.isSafeInteger(value) || value < 1) {
     console.warn(`[retention] ${name}="${raw}" is not a positive integer; using ${fallback}.`);
     return fallback;
   }
@@ -349,8 +351,13 @@ function sidecarPathFor(relativePath) {
 const TEMP_FILE_RE = /\.tmp$/u;
 const TRASH_HUSK_RE = /\.gc-\d+-\d+$/u;
 
+// Guards against a symlink loop or an unexpectedly deep tree. The deepest real
+// path is json/<month>/<day>/<date>-creation/<set>/<file>, i.e. 6, so this is
+// comfortably beyond anything the application creates.
+const SWEEP_MAX_DEPTH = 8;
+
 async function sweepStaleArtifacts(root, dir, now, depth = 0) {
-  if (depth > 8) return 0;
+  if (depth > SWEEP_MAX_DEPTH) return 0;
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -363,13 +370,15 @@ async function sweepStaleArtifacts(root, dir, now, depth = 0) {
   let removed = 0;
   for (const entry of entries) {
     const absolutePath = join(dir, entry.name);
-    const info = await statOrNull(absolutePath);
-    if (!info) continue;
-    if (now - info.mtimeMs < GRACE_MS) continue;
     if (!isInside(root, absolutePath)) continue;
 
     if (entry.isDirectory()) {
       if (TRASH_HUSK_RE.test(entry.name)) {
+        // A rename does not touch the directory's own mtime, so a husk left by
+        // an interrupted delete still carries the old set's timestamp and is
+        // collected on the next pass.
+        const huskInfo = await statOrNull(absolutePath);
+        if (!huskInfo || now - huskInfo.mtimeMs < GRACE_MS) continue;
         if (DRY_RUN) { removed += 1; continue; }
         try {
           await rm(absolutePath, { recursive: true, force: true });
@@ -379,12 +388,19 @@ async function sweepStaleArtifacts(root, dir, now, depth = 0) {
         }
         continue;
       }
-      // Temp files sit next to whatever they were staging, so this has to walk
-      // the whole tree — a top-level-only scan misses every one of them.
+      // Always descend. Making the recursion conditional on this directory's
+      // mtime would mean a stale temp file inside a busy directory is never
+      // reached — and busy directories are exactly where interrupted writes
+      // happen. Grace applies to the candidate being deleted, not to the walk.
       removed += await sweepStaleArtifacts(root, absolutePath, now, depth + 1);
       continue;
     }
+
+    // Name filter before any syscall: this loop runs over every image and every
+    // sidecar in the tree, and only "*.tmp" is ever a candidate.
     if (!TEMP_FILE_RE.test(entry.name)) continue;
+    const fileInfo = await statOrNull(absolutePath);
+    if (!fileInfo || now - fileInfo.mtimeMs < GRACE_MS) continue;
     if (DRY_RUN) { removed += 1; continue; }
     try {
       await rm(absolutePath, { force: true });
