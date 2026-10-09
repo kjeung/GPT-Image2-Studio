@@ -27,12 +27,13 @@
 import { readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 
+import { quarantineJsonFile } from "../lib/safe-json-file.mjs";
+
 const METADATA_DIRNAME = "json";
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 const SET_MARKER_RE = /^\d{4}-\d{2}-\d{2}-(creation|portrait|article|ppt)$/u;
 const PPT_MARKER_RE = /^\d{4}-\d{2}-\d{2}-ppt$/u;
 const SET_MANIFEST_DIRS = ["creation-sets", "portrait-sets", "article-illustration-sets", "ppt-decks"];
-const CORRUPT_SUFFIX = ".corrupt";
 
 const args = new Set(process.argv.slice(2));
 
@@ -87,15 +88,22 @@ function isManifestArea(target) {
   return MANIFEST_ROOTS.some((root) => isInside(root, target));
 }
 
-/** Quarantine instead of deleting: a broken manifest is the only record of its set. */
+/**
+ * Quarantine instead of deleting: a broken manifest is the only record of its set.
+ *
+ * Deliberately delegates to the application's own helper rather than keeping a
+ * second implementation here. An earlier revision of this file used a
+ * timestamped suffix while lib/safe-json-file.mjs used a fixed one, so the two
+ * disagreed about whether quarantined files can accumulate — and this copy was
+ * the wrong one. One policy, one implementation.
+ */
 async function quarantine(filePath, reason) {
   if (DRY_RUN) return;
-  const target = `${filePath}${CORRUPT_SUFFIX}-${Date.now()}`;
-  try {
-    await rename(filePath, target);
+  const target = await quarantineJsonFile(filePath);
+  if (target) {
     log(`quarantined unreadable JSON (${reason}): ${relative(OUTPUT_DIR, filePath)} -> ${relative(OUTPUT_DIR, target)}`);
-  } catch (error) {
-    log(`failed to quarantine ${relative(OUTPUT_DIR, filePath)}: ${error?.message || error}`);
+  } else {
+    log(`failed to quarantine ${relative(OUTPUT_DIR, filePath)}`);
   }
 }
 
