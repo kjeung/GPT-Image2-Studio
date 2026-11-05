@@ -1,7 +1,7 @@
 import { buildParameterText, formatImageModelLabel, formatRecentOutputMeta } from "/lib/studio-formatters.mjs";
 import { formatLoadingThumbnailStatusLabel, getPreviewPlaceholderState, getStablePreviewLoadingItems } from "/lib/preview-placeholder-state.mjs?v=20260618-thumbnail-status-1";
 import { buildGalleryReferenceFilterOptions, buildGallerySizeFilterOptions, buildGalleryTimeFilterOptions, distributeGalleryItemsIntoColumns, filterGalleryItems, getGalleryLayoutModeForWidth, getPromptGenerationGalleryItems, getRecentGalleryItems, normalizeGalleryFilters, paginateGallerySections, sortGalleryItemsByCreatedAtDesc, DEFAULT_GALLERY_RENDER_LIMIT, paginateGalleryRenderWindow } from "/lib/gallery-organizer.mjs";
-import { mergeGalleryWindowItems, resolveGalleryLoadMoreState, resolveNextGalleryRenderLimit, shouldFetchMoreGalleryFromServer } from "/lib/gallery-window.mjs";
+import { mergeGalleryWindowItems, resolveBackfillGalleryLimit, resolveGalleryLoadMoreState, resolveNextGalleryRenderLimit, shouldBackfillGalleryWindow, shouldFetchMoreGalleryFromServer } from "/lib/gallery-window.mjs";
 import { buildGalleryMetadataCacheEntry, collectGalleryMetadataRepairPatch, mergeGalleryItemWithCachedMetadata, pruneGalleryMetadataCache } from "/lib/gallery-metadata-recovery.mjs";
 import { getDefaultGenerationSize, getGenerationSizeOptions, getModelProtocolImageSizeOptions, normalizeGenerationSize, normalizeModelProtocolImageSize } from "/lib/generation-size-options.mjs?v=20260614-image2-sizes-1";
 import { getOutputFormatOptions, normalizeOutputFormat, } from "/lib/output-format-options.mjs?v=20260504-vercel-static-lib-1";
@@ -15440,6 +15440,37 @@ async function loadMoreGallery() {
   }
 }
 
+async function backfillGalleryWindowAfterDelete() {
+  // Only top up when the archive may still hold items we have not loaded; a
+  // short archive that now genuinely ends must be allowed to show fewer tiles.
+  if (
+    !shouldBackfillGalleryWindow({
+      knownCount: state.gallery.length,
+      renderLimit: state.galleryRenderLimit,
+      hasMoreOnServer: state.galleryHasMore,
+    })
+  ) {
+    return;
+  }
+
+  try {
+    const { sortedItems, hasMore } = await fetchGalleryWindow(
+      resolveBackfillGalleryLimit({ renderLimit: state.galleryRenderLimit }),
+    );
+    const hydratedGallery = hydrateGalleryItems(sortedItems);
+    state.gallery = mergeGalleryWindowItems(
+      state.gallery,
+      sortGalleryItemsByCreatedAtDesc(hydratedGallery.items),
+    );
+    state.galleryHasMore = hasMore;
+    void repairGalleryMetadataQueue(hydratedGallery.repairQueue);
+  } catch (error) {
+    // A failed top-up must not make the delete look broken: the deleted tile is
+    // already gone, and the next load or "load more" will refill the window.
+    console.warn("gallery backfill after delete failed", error);
+  }
+}
+
 function normalizeGenerationTaskSnapshot(task) {
   const id = String(task?.id || "").trim();
   if (!id) {
@@ -15743,6 +15774,11 @@ async function deleteGalleryItem(item) {
     closeLightbox();
   }
 
+  // Deleting a tile inside the window leaves a hole. If the archive still has
+  // unseen items, refill it so the view keeps showing the newest N instead of
+  // shrinking a tile per delete (and finally claiming to be empty while the
+  // server still has images).
+  await backfillGalleryWindowAfterDelete();
   renderAll();
 }
 

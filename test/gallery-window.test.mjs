@@ -4,8 +4,10 @@ import assert from "node:assert/strict";
 import {
   GALLERY_UNKNOWN_TOTAL_LABEL,
   mergeGalleryWindowItems,
+  resolveBackfillGalleryLimit,
   resolveGalleryLoadMoreState,
   resolveNextGalleryRenderLimit,
+  shouldBackfillGalleryWindow,
   shouldFetchMoreGalleryFromServer,
 } from "../lib/gallery-window.mjs";
 
@@ -107,4 +109,61 @@ test("gallery window merge dedupes by filename and keeps newest-first order", ()
   );
   // A re-sent item updates its metadata instead of duplicating the tile.
   assert.equal(merged.find((item) => item.filename === "a.png").prompt, "new a");
+});
+
+test("gallery window asks for a backfill when a delete opens a hole", () => {
+  // Deleting a tile inside the window leaves 9 of 10 slots filled; the server
+  // may still hold unseen items, so the view must top itself back up.
+  assert.equal(
+    shouldBackfillGalleryWindow({ knownCount: 9, renderLimit: 10, hasMoreOnServer: true }),
+    true,
+  );
+  // A short archive that genuinely ends must be allowed to show fewer tiles.
+  assert.equal(
+    shouldBackfillGalleryWindow({ knownCount: 9, renderLimit: 10, hasMoreOnServer: false }),
+    false,
+  );
+  // A full window needs no backfill.
+  assert.equal(
+    shouldBackfillGalleryWindow({ knownCount: 10, renderLimit: 10, hasMoreOnServer: true }),
+    false,
+  );
+});
+
+test("gallery backfill never drops to a false empty state while the archive has items", () => {
+  // Repeated deletes inside the window used to walk 10 -> 9 -> ... -> 0 while
+  // the server still returned a full page, so the view claimed to be empty on a
+  // non-empty archive. Every step before the archive actually ends must refill.
+  const hasMoreOnServer = true;
+  let knownCount = 10;
+  const renderLimit = 10;
+
+  for (let step = 0; step < 12; step += 1) {
+    knownCount -= 1;
+    const shouldBackfill = shouldBackfillGalleryWindow({
+      knownCount,
+      renderLimit,
+      hasMoreOnServer,
+    });
+    if (knownCount < renderLimit) {
+      assert.equal(shouldBackfill, true, `known=${knownCount} must trigger a backfill`);
+    }
+    // After a successful backfill the window is full again.
+    knownCount = renderLimit;
+  }
+
+  // Only once the server reports no more items may the window stay short.
+  assert.equal(
+    shouldBackfillGalleryWindow({ knownCount: 0, renderLimit, hasMoreOnServer: false }),
+    false,
+  );
+});
+
+test("gallery backfill requests one page wide enough to refill plus probe for more", () => {
+  // renderLimit + 1 refills the hole and still tells us whether the archive
+  // continues past the restored window.
+  assert.equal(resolveBackfillGalleryLimit({ renderLimit: 10 }), 11);
+  assert.equal(resolveBackfillGalleryLimit({ renderLimit: 20 }), 21);
+  // An invalid limit falls back to the default window before adding the probe.
+  assert.equal(resolveBackfillGalleryLimit({ renderLimit: 0 }), 11);
 });
