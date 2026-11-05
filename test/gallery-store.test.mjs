@@ -1,4 +1,4 @@
-﻿import test from "node:test";
+import test from "node:test";
 import assert from "node:assert/strict";
 import { access, mkdtemp, mkdir, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -102,6 +102,13 @@ test("gallery store separates default image folders by generation mode", async (
     assert.equal(saved.relativePath, expectedRelativePath);
   }
 });
+
+// Removed alongside lib/gallery-store.mjs: the ".tmp snapshot recovery" test
+// ("recovers a corrupt index from the newest valid temporary snapshot") covered
+// recoverGalleryIndex(), which no longer exists. A damaged index is now
+// quarantined by lib/safe-json-file.mjs (fixed ".corrupt" suffix) and the index
+// is rebuilt from the image files and their sidecars; docker/retention-gc.mjs
+// sweeps the stale ".tmp" candidates. Same treatment as the modified branch.
 
 test("gallery store preserves every index entry during concurrent saves", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "responses-gallery-concurrent-"));
