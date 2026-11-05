@@ -1,6 +1,7 @@
 param(
   [string]$Root = $PSScriptRoot,
-  [int]$Port = 3600
+  [int]$Port = 3600,
+  [switch]$HiddenServer
 )
 
 $resolvedRoot = [System.IO.Path]::GetFullPath($Root)
@@ -45,7 +46,16 @@ $listener = Get-StudioPortListener -TargetPort $targetPort
 
 if (-not $listener) {
   $command = "set PORT=$targetPort&& node server.mjs"
-  Start-Process -FilePath "cmd.exe" -WorkingDirectory $resolvedRoot -ArgumentList "/k", $command | Out-Null
+  if ($HiddenServer) {
+    $logDirectory = Join-Path $resolvedRoot "output"
+    New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+    $stdoutLog = Join-Path $logDirectory "server.log"
+    $stderrLog = Join-Path $logDirectory "server.err.log"
+    $command = "$command 1>>`"$stdoutLog`" 2>>`"$stderrLog`""
+    Start-Process -FilePath "cmd.exe" -WorkingDirectory $resolvedRoot -ArgumentList "/c", $command -WindowStyle Hidden | Out-Null
+  } else {
+    Start-Process -FilePath "cmd.exe" -WorkingDirectory $resolvedRoot -ArgumentList "/k", $command | Out-Null
+  }
 
   $deadline = (Get-Date).AddSeconds(20)
   do {

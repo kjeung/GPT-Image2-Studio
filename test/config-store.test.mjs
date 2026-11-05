@@ -13,6 +13,7 @@ test("config store returns empty public config before any save", async () => {
   const config = await store.readPublicConfig();
 
   assert.equal(config.baseUrl, "https://api.openai.com/v1");
+  assert.equal(config.downloadDirectory, "");
   assert.equal(config.apiKeyConfigured, false);
   assert.equal(config.apiKeyMask, undefined);
   assert.equal(config.responsesModel, "gpt-5.4");
@@ -32,7 +33,7 @@ test("config store returns empty public config before any save", async () => {
     size: "1024x1280",
     quality: "high",
     format: "png",
-    reasoningEffort: "xhigh",
+    reasoningEffort: "low",
   });
   assert.deepEqual(config.limits, {
     maxParallelTasksPerSession: 15,
@@ -243,6 +244,7 @@ test("config store persists private config and only exposes masked api key publi
   const store = createConfigStore({ rootDir });
 
   await store.saveConfig({
+    downloadDirectory: "D:\\Image Studio Downloads",
     baseUrl: "https://example.com",
     apiKey: "placeholder-test-key-1234567890",
     responsesModel: "gpt-5.4",
@@ -261,6 +263,7 @@ test("config store persists private config and only exposes masked api key publi
   );
 
   assert.equal(publicConfig.baseUrl, "https://example.com/v1");
+  assert.equal(publicConfig.downloadDirectory, "D:\\Image Studio Downloads");
   assert.equal(publicConfig.apiKeyConfigured, true);
   assert.match(publicConfig.apiKeyMask, /^plac.*7890$/);
   assert.equal(publicConfig.responsesModel, "gpt-5.4");
@@ -272,6 +275,7 @@ test("config store persists private config and only exposes masked api key publi
   });
 
   assert.equal(privateConfig.apiKey, "placeholder-test-key-1234567890");
+  assert.equal(privateConfig.downloadDirectory, "D:\\Image Studio Downloads");
   assert.equal(privateConfig.baseUrl, "https://example.com/v1");
   assert.equal(raw.apiKey, "placeholder-test-key-1234567890");
   assert.equal(raw.baseUrl, "https://example.com/v1");

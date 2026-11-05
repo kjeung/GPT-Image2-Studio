@@ -16,8 +16,11 @@ import { buildStyleTransferPresetLightboxItem } from "/lib/style-transfer-preset
 import { ensureLazyViewModule, getMountedLazyViewModule } from "/lib/view-mode-loader.mjs?v=20260608-quick-blend-time-sort-1";
 import { appendBrowserConfigToFormData, getBrowserPrivateConfigRequestPayload, getOrCreateClientSessionId, readBrowserPrivateConfig, saveBrowserPrivateConfig, toPublicBrowserConfig } from "/lib/browser-config.mjs";
 import { cacheBrowserGalleryItem, clearBrowserImageCache, dataUrlToBlob, deleteBrowserCachedGalleryItem, fetchServerImageAsDataUrl, getBrowserCachedImageData, getImageUrl, getServerImageUrl, getServerThumbnailUrl, isCacheableBrowserImageUrl, mergeServerAndBrowserGalleryItems, readBrowserCachedGalleryItems } from "/lib/browser-image-cache.mjs";
+import { prepareClipboardImageFiles } from "/lib/clipboard-image-files.mjs?v=20260716-stable-paste-1";
+import { decodePromptKitSharePayload, encodePromptKitSharePayload, formatPromptKitShareCode, mergePromptKitShareData, movePromptTemplateInList, parsePromptKitShareCode, removePromptTemplatesFromLibrary } from "/lib/prompt-kit-share.mjs?v=20260920-template-title-2";
 import { createImageEditShellBridge } from "/lib/image-edit-shell-bridge.mjs";
 import { createCreationLogoLibraryController } from "/lib/creation-logo-library.mjs";
+import { createSiteBrandingController } from "/lib/site-branding.mjs?v=20260717-brand-persistence-1";
 import { consumeSse, requestGenerationStream } from "/lib/generation-client.mjs";
 import { createConfigModelPickerController } from "/lib/config-model-picker.mjs";
 import { createLightboxImageViewer, createLightboxViewerState } from "/lib/lightbox-image-viewer.mjs";
@@ -38,6 +41,7 @@ import { buildCreationSkuSubjectsForPayload, normalizeCreationSkuBundleCountForP
 import { buildCreationReferenceLightboxItem } from "/lib/creation-reference-lightbox.mjs";
 import { bindCreationReferenceDrag, reorderCreationReferenceFiles } from "/lib/creation-reference-drag.mjs";
 import { isCreationSubjectReferenceRole } from "/lib/creation-reference-roles.mjs";
+import { buildTitleAwarePrompt, areAllItemsSelected, canApplyItemConfig, isRetryableStudioJob, normalizePromptSet, normalizePromptTemplateParams, removePromptTemplateFromSets, resolvePromptSetTemplates, saveGalleryItemsIndividually, selectGalleryItemsByFilenames, toggleSelectionValue } from "/lib/studio-enhancements.mjs?v=20260920-template-title-2";
 import { appendCreationCoverageSummary, applyCreationReferenceCoverageRolePlan, normalizeCreationCoverageFields, toggleCreationSelectedRoles } from "/lib/creation-reference-coverage.mjs?v=20260703-latest-restore-1";
 import { appendCreationVisualLanguageSuggestionCard, applyCreationReferenceAnalysisProductNameValue, buildCreationReferenceAnalysisAppliedFeedbackMessage, buildCreationReferenceAnalysisCategoryMatchText, getCreationReferenceAnalysisDisplayRoleLabel, getCreationReferenceAnalysisGroupedSubjectUnitCount, getCreationReferenceAnalysisRoleCorrectionReason, getCreationReferenceAnalysisVisualLanguageReason, getCreationReferenceAnalysisVisualLanguageSource, normalizeCreationReferenceAnalysisUnitCountNote, shouldDowngradeReferenceProductAnalysisRole, syncCreationReferenceVisualLanguageButton } from "/lib/creation-reference-analysis-view.mjs";
 import { createCreationListingController, getCreationRecordListingMetaLabel, getCreationListingSearchValues, normalizeCreationListingDraftForView, renderCreationListingDrafts } from "/lib/creation-listing-view.mjs";
@@ -94,8 +98,9 @@ const REASONING_ESTIMATES = {
 };
 const DEFAULT_LIMITS = { maxParallelTasksPerSession: 15, maxReferenceImages: 15, maxCreationReferenceImages: 15, maxCreationStyleReferenceImages: 3, maxPortraitPersonReferenceImages: 3, maxPortraitActionReferenceImages: 3, maxPortraitAccessoryReferenceImages: 9 };
 const CREATION_IMAGE_COUNT_OPTIONS = [0, 4, 6, 8, 10, 12, 14, 16, 18];
-const DEFAULT_PROMPT_ENHANCE_TEXT = ",sharp focus, macro details, rich textures, crisp edges, photorealistic texture, visible grain, detailed surface material, cinematic lighting"; function buildPromptModePrompt() { const prompt = refs.promptInput.value.trim(); if (!state.promptEnhanceEnabled) { return prompt; } const enhanceText = String(refs.promptEnhanceInput?.value || "").trim(); return enhanceText ? `${prompt}${enhanceText.startsWith(",") ? "" : "\n\n"}${enhanceText}` : prompt; } function syncPromptEnhanceMode() { refs.promptEnhanceToggle.classList.toggle("is-active", state.promptEnhanceEnabled); refs.promptEnhanceToggle.setAttribute("aria-checked", String(state.promptEnhanceEnabled)); refs.promptEnhanceToggle.querySelector("small").textContent = state.promptEnhanceEnabled ? "开启" : "关闭"; refs.promptEnhanceField.classList.toggle("hidden", !state.promptEnhanceEnabled); } function togglePromptEnhanceMode() { state.promptEnhanceEnabled = !state.promptEnhanceEnabled; syncPromptEnhanceMode(); if (state.promptEnhanceEnabled) { refs.promptEnhanceInput.focus(); } }
+const DEFAULT_PROMPT_ENHANCE_TEXT = ",sharp focus, macro details, rich textures, crisp edges, photorealistic texture, visible grain, detailed surface material, cinematic lighting"; function buildEnhancedPrompt(promptText) { const prompt = String(promptText || "").trim(); if (!state.promptEnhanceEnabled) { return prompt; } const enhanceText = String(refs.promptEnhanceInput?.value || "").trim(); return enhanceText ? `${prompt}${enhanceText.startsWith(",") ? "" : "\n\n"}${enhanceText}` : prompt; } function buildPromptModePrompt() { return buildEnhancedPrompt(buildTitleAwarePrompt(refs.promptInput.value, refs.productTitleInput.value, state.promptAnalyzeTitle === true)); } function syncPromptEnhanceMode() { refs.promptEnhanceToggle.classList.toggle("is-active", state.promptEnhanceEnabled); refs.promptEnhanceToggle.setAttribute("aria-checked", String(state.promptEnhanceEnabled)); refs.promptEnhanceToggle.querySelector("small").textContent = state.promptEnhanceEnabled ? "开启" : "关闭"; refs.promptEnhanceField.classList.toggle("hidden", !state.promptEnhanceEnabled); } function togglePromptEnhanceMode() { state.promptEnhanceEnabled = !state.promptEnhanceEnabled; syncPromptEnhanceMode(); if (state.promptEnhanceEnabled) { refs.promptEnhanceInput.focus(); } }
 const PROMPT_TEMPLATE_STORAGE_KEY = "image-studio-prompt-templates-v2";
+const PROMPT_SET_STORAGE_KEY = "image-studio-prompt-sets-v1";
 const DEFAULT_PROMPT_TEMPLATES = SURPRISE_PROMPTS.map((template, index) => ({
   id: `default-template-${index + 1}`,
   name: template.name,
@@ -457,6 +462,11 @@ const state = {
   galleryControls: { ...DEFAULT_GALLERY_CONTROLS },
   galleryHistoryPage: 0,
   galleryColumnPreset: DEFAULT_GALLERY_COLUMN_PRESET,
+  gallerySelectionMode: false,
+  gallerySelection: new Set(),
+  filmstripSelectionMode: false,
+  filmstripSelection: new Set(),
+  filmstripBatchDownloading: false,
   generationTasks: [],
   jobs: [],
   lightboxItem: null,
@@ -500,7 +510,13 @@ const state = {
       slideNumber: 0,
     },
   },
-  promptTemplates: [], promptEnhanceEnabled: false,
+  promptTemplates: [],
+  promptSets: [],
+  promptSetDraftTemplateIds: new Set(),
+  promptSetGenerating: false,
+  promptTemplateBatchMode: false,
+  promptTemplateBatchSelectedIds: new Set(),
+  promptEnhanceEnabled: false,
   reasoningEfforts: [...DEFAULT_REASONING_EFFORTS],
   referenceAnalysis: {
     files: [],
@@ -564,6 +580,7 @@ const state = {
     index: -1,
   },
   referencePreviewItem: null,
+  selectedPromptSetId: "",
   selectedPromptTemplateId: "",
   selectedPreviewKey: "",
   studioMode: "prompt",
@@ -586,6 +603,11 @@ const state = {
 let creationReferenceAnalysisRequestToken = 0;
 
 const refs = {
+  brandEditorOpenButton: document.querySelector("#brandEditorOpenButton"),
+  brandLogoImage: document.querySelector("#brandLogoImage"),
+  brandMark: document.querySelector("#brandMark"),
+  brandName: document.querySelector("#brandName"),
+  brandTagline: document.querySelector("#brandTagline"),
   apiKeyInput: document.querySelector("#apiKeyInput"),
   baseUrlInput: document.querySelector("#baseUrlInput"),
   baseUrlFullToggle: document.querySelector("#baseUrlFullToggle"),
@@ -620,6 +642,9 @@ const refs = {
   configForm: document.querySelector("#configForm"),
   configGenerationLogPanel: document.querySelector("#configGenerationLogPanel"),
   configStatus: document.querySelector("#configStatus"),
+  downloadDirectoryInput: document.querySelector("#downloadDirectoryInput"),
+  selectDownloadDirectoryButton: document.querySelector("#selectDownloadDirectoryButton"),
+  openDownloadDirectoryButton: document.querySelector("#openDownloadDirectoryButton"),
   fetchModelsButton: document.querySelector("#fetchModelsButton"),
   connectionLabel: document.querySelector("#connectionLabel"),
   connectionStatus: document.querySelector("#connectionStatus"),
@@ -827,6 +852,21 @@ const refs = {
   galleryView: document.querySelector(".gallery-view"),
   generateButton: document.querySelector("#generateButton"),
   generateForm: document.querySelector("#generateForm"),
+  clearPromptButton: document.querySelector("#clearPromptButton"),
+  clearReferenceButton: document.querySelector("#clearReferenceButton"),
+  gallerySelectToggle: document.querySelector("#gallerySelectToggle"),
+  gallerySelectAllButton: document.querySelector("#gallerySelectAllButton"),
+  gallerySelectClearButton: document.querySelector("#gallerySelectClearButton"),
+  galleryBatchDownloadButton: document.querySelector("#galleryBatchDownloadButton"),
+  gallerySelectionCount: document.querySelector("#gallerySelectionCount"),
+  filmstripSelectToggle: document.querySelector("#filmstripSelectToggle"),
+  filmstripSelectAllButton: document.querySelector("#filmstripSelectAllButton"),
+  filmstripSelectClearButton: document.querySelector("#filmstripSelectClearButton"),
+  filmstripBatchDownloadButton: document.querySelector("#filmstripBatchDownloadButton"),
+  filmstripSelectionCount: document.querySelector("#filmstripSelectionCount"),
+  previewApplyConfigButton: document.querySelector("#previewApplyConfigButton"),
+  lightboxApplyConfigButton: document.querySelector("#lightboxApplyConfigButton"),
+  promptTemplateSaveParamsToggle: document.querySelector("#promptTemplateSaveParamsToggle"),
   generationModeStatus: document.querySelector("#generationModeStatus"),
   globalNav: document.querySelector(".global-nav"),
   globalNavItems: [...document.querySelectorAll("[data-nav-section]")],
@@ -860,6 +900,7 @@ const refs = {
   outputFormatInput: document.querySelector("#outputFormatInput"),
   previewDeleteButton: document.querySelector("#previewDeleteButton"),
   previewDownloadButton: document.querySelector("#previewDownloadButton"),
+  previewRetryButton: document.querySelector("#previewRetryButton"),
   previewId: document.querySelector("#previewId"),
   previewImage: document.querySelector("#previewImage"),
   previewLightboxButton: document.querySelector("#previewLightboxButton"),
@@ -933,14 +974,29 @@ const refs = {
   pptTopicInput: document.querySelector("#pptTopicInput"),
   pptTransitionPresetInput: document.querySelector("#pptTransitionPresetInput"),
   pptTransitionSpeedInput: document.querySelector("#pptTransitionSpeedInput"),
+  productTitleInput: document.querySelector("#productTitleInput"),
+  promptTemplateAnalyzeTitleToggle: document.querySelector("#promptTemplateAnalyzeTitleToggle"),
   promptInput: document.querySelector("#promptInput"),
   promptModeBlocks: [document.querySelector(".reference-field-group"), ...document.querySelectorAll("[data-prompt-mode-block]")].filter(Boolean),
+  promptKitCodeFeedback: document.querySelector("#promptKitCodeFeedback"),
+  promptKitCodeInput: document.querySelector("#promptKitCodeInput"),
+  importPromptKitCodeButton: document.querySelector("#importPromptKitCodeButton"),
   promptTemplateFeedback: document.querySelector("#promptTemplateFeedback"),
   promptTemplateForm: document.querySelector("#promptTemplateForm"),
+  promptTemplateBatchDeleteButton: document.querySelector("#promptTemplateBatchDeleteButton"),
+  promptTemplateBatchSelectAllButton: document.querySelector("#promptTemplateBatchSelectAllButton"),
+  promptTemplateBatchToggleButton: document.querySelector("#promptTemplateBatchToggleButton"),
   promptTemplateList: document.querySelector("#promptTemplateList"),
   promptTemplateNameInput: document.querySelector("#promptTemplateNameInput"),
   promptTemplatePopover: document.querySelector("#promptTemplatePopover"),
   promptTemplateTextInput: document.querySelector("#promptTemplateTextInput"),
+  promptSetFeedback: document.querySelector("#promptSetFeedback"),
+  promptSetList: document.querySelector("#promptSetList"),
+  promptSetNameInput: document.querySelector("#promptSetNameInput"),
+  promptSetSelectionCount: document.querySelector("#promptSetSelectionCount"),
+  importPromptKitFileButton: document.querySelector("#importPromptKitFileButton"),
+  promptKitFileInput: document.querySelector("#promptKitFileInput"),
+  sharePromptKitButton: document.querySelector("#sharePromptKitButton"),
   ratioGrid: document.querySelector("#ratioGrid"),
   ratioInput: document.querySelector("#ratioInput"),
   ratioOrientationSummary: document.querySelector("#ratioOrientationSummary"),
@@ -1013,9 +1069,14 @@ const refs = {
   sizeInput: document.querySelector("#sizeInput"),
   surprisePromptButton: document.querySelector("#surprisePromptButton"),
   applyPromptTemplateButton: document.querySelector("#applyPromptTemplateButton"),
+  clearPromptTemplateSelectionButton: document.querySelector("#clearPromptTemplateSelectionButton"),
   closePromptTemplateButton: document.querySelector("#closePromptTemplateButton"),
   deletePromptTemplateButton: document.querySelector("#deletePromptTemplateButton"),
+  generatePromptSetButton: document.querySelector("#generatePromptSetButton"),
+  newPromptSetButton: document.querySelector("#newPromptSetButton"),
   newPromptTemplateButton: document.querySelector("#newPromptTemplateButton"),
+  savePromptSetButton: document.querySelector("#savePromptSetButton"),
+  selectAllPromptTemplatesButton: document.querySelector("#selectAllPromptTemplatesButton"),
   settingsPanel: document.querySelector(".settings-panel"),
   sideColumn: document.querySelector(".side-column"),
   studioView: document.querySelector(".studio-view"),
@@ -1034,6 +1095,31 @@ const refs = {
   styleTransferStyleGrid: document.querySelector("#styleTransferStyleGrid"),
   styleTransferStyleInput: document.querySelector("#styleTransferStyleInput"),
   styleTransferUploadGrid: document.querySelector("#styleTransferUploadGrid"),
+  siteBrandBackdrop: document.querySelector("#siteBrandBackdrop"),
+  siteBrandBackgroundInput: document.querySelector("#siteBrandBackgroundInput"),
+  siteBrandCancelButton: document.querySelector("#siteBrandCancelButton"),
+  siteBrandCloseButton: document.querySelector("#siteBrandCloseButton"),
+  siteBrandFilename: document.querySelector("#siteBrandFilename"),
+  siteBrandFavicon: document.querySelector("#siteBrandFavicon"),
+  siteBrandFeedback: document.querySelector("#siteBrandFeedback"),
+  siteBrandFitInput: document.querySelector("#siteBrandFitInput"),
+  siteBrandForm: document.querySelector("#siteBrandForm"),
+  siteBrandImageInput: document.querySelector("#siteBrandImageInput"),
+  siteBrandModal: document.querySelector("#siteBrandModal"),
+  siteBrandNameInput: document.querySelector("#siteBrandNameInput"),
+  siteBrandPreviewImage: document.querySelector("#siteBrandPreviewImage"),
+  siteBrandPreviewMark: document.querySelector("#siteBrandPreviewMark"),
+  siteBrandPreviewName: document.querySelector("#siteBrandPreviewName"),
+  siteBrandPreviewTagline: document.querySelector("#siteBrandPreviewTagline"),
+  siteBrandRadiusInput: document.querySelector("#siteBrandRadiusInput"),
+  siteBrandRadiusValue: document.querySelector("#siteBrandRadiusValue"),
+  siteBrandRemoveImageButton: document.querySelector("#siteBrandRemoveImageButton"),
+  siteBrandResetButton: document.querySelector("#siteBrandResetButton"),
+  siteBrandSaveButton: document.querySelector("#siteBrandSaveButton"),
+  siteBrandSizeInput: document.querySelector("#siteBrandSizeInput"),
+  siteBrandSizeValue: document.querySelector("#siteBrandSizeValue"),
+  siteBrandTaglineInput: document.querySelector("#siteBrandTaglineInput"),
+  siteBrandUploadZone: document.querySelector("#siteBrandUploadZone"),
   themeNavAction: document.querySelector("#themeNavAction"),
   themeToggleButton: document.querySelector("#themeToggleButton"),
   themeToggleLabel: document.querySelector("#themeToggleLabel"),
@@ -1065,6 +1151,7 @@ const handlePreviewArrowNavigation = previewKeyboardNavigation.handlePreviewArro
 const setReferencePreviewNavigationContext = previewKeyboardNavigation.setReferencePreviewNavigationContext;
 const portraitLocationController = createPortraitLocationSelectorController({ refs, state, renderPortraitView });
 const configModelPicker = createConfigModelPickerController({ refs, state, getBrowserPrivateConfigRequestPayload }); const creationLogoLibrary = createCreationLogoLibraryController({ applyLogoFile: applyCreationLogoFile, refs, setFeedback: setCreationFeedback, showError });
+const siteBranding = createSiteBrandingController({ refs, showError });
 const pptAnalysis = createPptAnalysisController({
   state,
   buildFormData: buildPptFormData,
@@ -1371,12 +1458,69 @@ function triggerBrowserImageDownload(blob, filename) {
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
 
+async function saveImageToConfiguredDirectory(blob, filename) {
+  const formData = new FormData();
+  formData.set("image", blob, filename || "preview.png");
+  formData.set("filename", filename || "preview.png");
+  const response = await fetch("/api/download-image", {
+    method: "POST",
+    body: formData,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || "保存图片失败，请检查下载路径。");
+  }
+  return payload;
+}
+
 async function downloadGalleryItem(item, imageElement) {
   if (!item && !imageElement) {
     return;
   }
   const blob = await resolveDownloadImageBlob(item, imageElement);
-  triggerBrowserImageDownload(blob, item.filename || "preview.png");
+  const filename = item?.filename || "preview.png";
+  if (String(state.config?.downloadDirectory || "").trim()) {
+    return saveImageToConfiguredDirectory(blob, filename);
+  }
+  triggerBrowserImageDownload(blob, filename);
+  return { ok: true, browserDownload: true, filename };
+}
+
+function isImageDownloadFilename(filename) {
+  return /\.(?:avif|bmp|gif|jpe?g|png|svg|tiff?|webp)$/i.test(String(filename || "").trim());
+}
+
+function handleConfiguredImageDownloadClick(event) {
+  if (event.defaultPrevented || !String(state.config?.downloadDirectory || "").trim()) {
+    return;
+  }
+  const link = event.target instanceof Element ? event.target.closest("a[download]") : null;
+  if (!link || !isImageDownloadFilename(link.download)) {
+    return;
+  }
+  const href = link.href;
+  if (!href || href.endsWith("#")) {
+    return;
+  }
+
+  event.preventDefault();
+  const imageElement = link.closest(".generation-result, .result-card, .preview-card")?.querySelector("img") || null;
+  downloadGalleryItem(
+    {
+      filename: link.download,
+      imageUrl: href,
+    },
+    imageElement,
+  ).catch((error) => showError(error instanceof Error ? error.message : String(error)));
+}
+
+// Saves multiple selected images without producing a zip the user would have to
+// unpack. Each image follows the configured folder or the browser fallback.
+async function batchSaveGalleryItems(items) {
+  const result = await saveGalleryItemsIndividually(items, {
+    downloadItem: (item) => downloadGalleryItem(item, null),
+  });
+  return { ...result, cancelled: false };
 }
 
 function getDisplayId(item) {
@@ -1815,6 +1959,7 @@ function setStudioGenerationMode(mode = "prompt") {
   refs.promptModeBlocks.forEach((block) => {
     block.classList.toggle("hidden", nextMode === "style-transfer");
   });
+  refs.productTitleInput.disabled = nextMode === "style-transfer";
   refs.styleTransferBlock?.classList.toggle("hidden", nextMode !== "style-transfer");
   updateGenerateButton();
 }
@@ -2233,6 +2378,12 @@ async function setActiveView(view) {
 
 function updatePromptCounter() {
   refs.promptCounter.textContent = `${refs.promptInput.value.length} 字`;
+}
+
+function clearPromptInput() {
+  refs.promptInput.value = "";
+  updatePromptCounter();
+  refs.promptInput.focus();
 }
 
 function getMaxQueuedJobCount() {
@@ -3659,7 +3810,7 @@ function createImageDecompositionJob() {
     baseUrl: state.config?.baseUrl || refs.baseUrlInput.value.trim(),
     responsesModel: state.config?.responsesModel || refs.responsesModelInput.value.trim() || "gpt-5.4",
     imageModel: "gpt-image-2",
-    reasoningEffort: refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "xhigh",
+    reasoningEffort: refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "low",
     requestRetryCount: 0,
     referenceFiles: sourceItem ? [createImageDecompositionGenerationFile(sourceItem)] : [],
     hasReferenceImage: Boolean(sourceItem),
@@ -4621,7 +4772,7 @@ function renderReferenceAnalysis() {
 }
 
 function renderReasoningOptions() {
-  const currentValue = refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "xhigh";
+  const currentValue = refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "low";
   refs.reasoningEffortInput.innerHTML = "";
 
   state.reasoningEfforts.forEach((value) => {
@@ -4636,7 +4787,7 @@ function renderReasoningOptions() {
   if (state.reasoningEfforts.includes(currentValue)) {
     refs.reasoningEffortInput.value = currentValue;
   } else {
-    refs.reasoningEffortInput.value = state.reasoningEfforts[0] || "xhigh";
+    refs.reasoningEffortInput.value = state.reasoningEfforts[0] || "low";
   }
 }
 
@@ -5236,6 +5387,7 @@ function appendJobConfigToFormData(formData, job) {
 }
 
 function syncConfigUi(config) {
+  if (refs.downloadDirectoryInput) refs.downloadDirectoryInput.value = config.downloadDirectory || "";
   syncEndpointInputDisplay("a", config.baseUrl || "", config.endpointPath || API_ENDPOINT_RESPONSES);
   refs.responsesModelInput.value = config.responsesModel || "gpt-5.5";
   syncEndpointInputDisplay("b", config.directBaseUrl || config.baseUrl || "", config.directEndpointPath || API_ENDPOINT_IMAGE_GENERATIONS);
@@ -5425,6 +5577,11 @@ function syncLightboxItem() {
   refs.lightboxDownload.href = imageUrl || "#";
   refs.lightboxDownload.download = fresh.filename || "preview.png";
   syncLightboxCreationRecordActions(fresh);
+  if (refs.lightboxApplyConfigButton) {
+    const canApply = canApplyItemConfig(fresh) && !fresh.isCreationRecordItem;
+    refs.lightboxApplyConfigButton.classList.toggle("hidden", !canApply);
+    refs.lightboxApplyConfigButton.disabled = !canApply;
+  }
   if (refs.lightboxImage.complete) {
     syncLightboxImageMetrics();
   }
@@ -5851,6 +6008,7 @@ function renderPreviewPlaceholder(placeholderState) {
 function renderPreview() {
   const item = getCurrentPreviewItem();
   const imageUrl = getImageUrl(item);
+  const isFailed = isFailedPreviewItem(item);
   const placeholderState = getPreviewPlaceholderState({
     item,
     imageUrl,
@@ -5861,6 +6019,31 @@ function renderPreview() {
   });
 
   refs.zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
+
+  if (isFailed) {
+    refs.previewModel.textContent = formatImageModelLabel(item.imageModel);
+    refs.previewTime.textContent = formatTime(item.createdAt);
+    refs.previewId.textContent = `ID: ${getDisplayId(item)}`;
+    refs.previewSize.textContent = formatCanvasLabel(item.size);
+    refs.previewPlaceholder.classList.remove("hidden");
+    renderPreviewPlaceholder({
+      mode: "error",
+      eyebrow: "Generation Failed",
+      title: "生成失败，可点击重新生成",
+      detail: item.errorMessage || item.statusText || "生成请求失败，请重试。",
+      showAnimation: false,
+      steps: [],
+    });
+    refs.previewImage.removeAttribute("src");
+    refs.previewImage.classList.remove("is-mounted", "is-visible");
+    refs.previewDownloadButton.removeAttribute("href");
+    refs.previewDownloadButton.removeAttribute("download");
+    refs.previewDownloadButton.classList.add("disabled");
+    refs.previewLightboxButton.disabled = true;
+    refs.previewDeleteButton.disabled = true;
+    syncPreviewActionButtons(item, { failed: true, ready: false });
+    return;
+  }
 
   if (placeholderState.mode === "idle") {
     refs.previewModel.textContent = "GPT Image 2.0";
@@ -5876,6 +6059,7 @@ function renderPreview() {
     refs.previewDownloadButton.classList.add("disabled");
     refs.previewLightboxButton.disabled = true;
     refs.previewDeleteButton.disabled = true;
+    syncPreviewActionButtons(item, { failed: false, ready: false });
     return;
   }
 
@@ -5894,6 +6078,7 @@ function renderPreview() {
     refs.previewDownloadButton.classList.add("disabled");
     refs.previewLightboxButton.disabled = true;
     refs.previewDeleteButton.disabled = true;
+    syncPreviewActionButtons(item, { failed: false, ready: false });
     return;
   }
 
@@ -5922,6 +6107,23 @@ function renderPreview() {
   refs.previewDownloadButton.classList.remove("disabled");
   refs.previewLightboxButton.disabled = false;
   refs.previewDeleteButton.disabled = !item.filename;
+  syncPreviewActionButtons(item, { failed: false, ready: true });
+}
+
+function isFailedPreviewItem(item) {
+  return Boolean(item && !getImageUrl(item) && normalizeGenerationTaskStatus(item.status) === "error");
+}
+
+function syncPreviewActionButtons(item, { failed = false, ready = false } = {}) {
+  if (refs.previewRetryButton) {
+    refs.previewRetryButton.classList.toggle("hidden", !failed);
+    refs.previewRetryButton.disabled = !failed;
+  }
+  if (refs.previewApplyConfigButton) {
+    const canApply = ready && canApplyItemConfig(item);
+    refs.previewApplyConfigButton.classList.toggle("hidden", !canApply);
+    refs.previewApplyConfigButton.disabled = !canApply;
+  }
 }
 
 function getFilmstripItems() {
@@ -6006,6 +6208,10 @@ function createFilmstripEntry(key) {
   button.type = "button";
   button.className = "filmstrip-item";
   button.addEventListener("click", () => {
+    if (state.filmstripSelectionMode) {
+      toggleFilmstripSelectionByKey(key);
+      return;
+    }
     setSelectedPreviewKey(key);
   });
 
@@ -6066,9 +6272,40 @@ function syncFilmstripCancelButton(shell, key, item) {
   shell.appendChild(cancelButton);
 }
 
+function isFailedGenerationJob(item) {
+  return Boolean(item && item.id && normalizeGenerationTaskStatus(item.status) === "error");
+}
+
+function syncFilmstripRetryButton(shell, key, item) {
+  const existingRetryButton = shell.querySelector(".filmstrip-retry");
+  const shouldRenderRetryButton = key.startsWith("job:") && isFailedGenerationJob(item) && isRetryableStudioJob(item);
+  if (!shouldRenderRetryButton) {
+    existingRetryButton?.remove();
+    return;
+  }
+
+  shell.classList.add("is-failed");
+  if (existingRetryButton) {
+    return;
+  }
+
+  const retryButton = document.createElement("button");
+  retryButton.type = "button";
+  retryButton.className = "filmstrip-retry";
+  retryButton.textContent = "重试";
+  retryButton.title = "重新生成该任务";
+  retryButton.setAttribute("aria-label", "重新生成该任务");
+  retryButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    void retryFailedJob(item.id);
+  });
+  shell.appendChild(retryButton);
+}
+
 function syncFilmstripEntry(shell, { key, item, label }) {
   const button = shell.querySelector(".filmstrip-item");
   button.classList.toggle("active", key === state.selectedPreviewKey);
+  shell.classList.toggle("is-failed", key.startsWith("job:") && isFailedGenerationJob(item));
   syncFilmstripMedia(button, item);
 
   let caption = button.querySelector("[data-filmstrip-label]");
@@ -6079,7 +6316,9 @@ function syncFilmstripEntry(shell, { key, item, label }) {
   }
   caption.textContent = label;
 
+  syncFilmstripSelectionState(shell, button, key, item);
   syncFilmstripCancelButton(shell, key, item);
+  syncFilmstripRetryButton(shell, key, item);
 }
 
 function renderFilmstrip() {
@@ -6186,6 +6425,10 @@ function createGalleryTile(item) {
   button.type = "button";
   button.className = "gallery-tile";
   button.addEventListener("click", () => {
+    if (state.gallerySelectionMode) {
+      toggleGalleryItemSelection(item);
+      return;
+    }
     openLightbox(item, { items: state.gallery });
   });
 
@@ -6194,12 +6437,270 @@ function createGalleryTile(item) {
   image.alt = getDisplayPrompt(item);
   image.loading = "lazy";
   button.appendChild(image);
+
+  if (state.gallerySelectionMode) {
+    const filename = String(item?.filename || "");
+    const selected = state.gallerySelection.has(filename);
+    button.classList.add("is-selectable");
+    button.classList.toggle("is-selected", selected);
+    const check = document.createElement("span");
+    check.className = "gallery-tile-check";
+    check.setAttribute("aria-hidden", "true");
+    check.textContent = selected ? "✓" : "";
+    button.appendChild(check);
+  }
   return button;
+}
+
+function renderGallerySelectionState() {
+  renderGallerySelectionToolbar();
+  renderGalleryView();
+}
+
+function toggleGalleryItemSelection(item) {
+  toggleSelectionValue(state.gallerySelection, item?.filename);
+  renderGallerySelectionState();
+}
+
+function setGallerySelectionMode(enabled) {
+  state.gallerySelectionMode = Boolean(enabled);
+  if (!state.gallerySelectionMode) {
+    state.gallerySelection.clear();
+  }
+  renderGallerySelectionState();
+}
+
+function toggleGallerySelectionMode() {
+  setGallerySelectionMode(!state.gallerySelectionMode);
+}
+
+function selectAllGalleryItems() {
+  const visible = getVisibleGalleryItems();
+  const shouldDeselect = areAllItemsSelected(visible, state.gallerySelection);
+  visible.forEach((item) => {
+    const filename = String(item.filename || "");
+    if (!filename) {
+      return;
+    }
+    if (shouldDeselect) {
+      state.gallerySelection.delete(filename);
+    } else {
+      state.gallerySelection.add(filename);
+    }
+  });
+  renderGallerySelectionState();
+}
+
+function clearGallerySelection() {
+  state.gallerySelection.clear();
+  renderGallerySelectionState();
+}
+
+
+function renderGallerySelectionToolbar() {
+  const mode = state.gallerySelectionMode;
+  const count = state.gallerySelection.size;
+  if (refs.gallerySelectToggle) {
+    refs.gallerySelectToggle.classList.toggle("active", mode);
+    refs.gallerySelectToggle.setAttribute("aria-pressed", String(mode));
+    refs.gallerySelectToggle.textContent = mode ? "退出多选" : "批量选择";
+  }
+  [refs.gallerySelectAllButton, refs.gallerySelectClearButton, refs.galleryBatchDownloadButton].forEach((el) => {
+    if (el) {
+      el.classList.toggle("hidden", !mode);
+    }
+  });
+  if (refs.gallerySelectionCount) {
+    refs.gallerySelectionCount.classList.toggle("hidden", !mode);
+    refs.gallerySelectionCount.textContent = `已选 ${count}`;
+  }
+  if (refs.galleryBatchDownloadButton) {
+    refs.galleryBatchDownloadButton.disabled = count === 0 || state.galleryBatchDownloading;
+    refs.galleryBatchDownloadButton.textContent = state.galleryBatchDownloading ? "保存中..." : `下载所选 (${count})`;
+  }
+}
+
+async function batchDownloadSelectedGalleryItems() {
+  if (state.galleryBatchDownloading) {
+    return;
+  }
+  const items = selectGalleryItemsByFilenames(state.gallery, [...state.gallerySelection]);
+  if (items.length === 0) {
+    showError("请先勾选要下载的图片。");
+    return;
+  }
+
+  if (items.length === 1) {
+    try {
+      await downloadGalleryItem(items[0], null);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  state.galleryBatchDownloading = true;
+  renderGallerySelectionToolbar();
+  try {
+    const result = await batchSaveGalleryItems(items);
+    if (!result.cancelled && result.failed > 0) {
+      showError(`已保存 ${result.saved} 张，${result.failed} 张无法读取。`);
+    }
+  } catch (error) {
+    showError(error instanceof Error ? error.message : String(error));
+  } finally {
+    state.galleryBatchDownloading = false;
+    renderGallerySelectionToolbar();
+  }
 }
 
 function normalizeGalleryColumnPreset(value) {
   const preset = Number(value);
   return GALLERY_COLUMN_PRESETS.includes(preset) ? preset : DEFAULT_GALLERY_COLUMN_PRESET;
+}
+
+function getFilmstripSelectableItems() {
+  return getFilmstripItems()
+    .map((entry) => entry.item)
+    .filter((item) => item && String(item.filename || "") && getImageUrl(item));
+}
+
+function renderFilmstripSelectionState() {
+  renderFilmstripSelectionToolbar();
+  renderFilmstrip();
+}
+
+function renderFilmstripSelectionToolbar() {
+  const mode = state.filmstripSelectionMode;
+  const count = state.filmstripSelection.size;
+  if (refs.filmstripSelectToggle) {
+    refs.filmstripSelectToggle.classList.toggle("active", mode);
+    refs.filmstripSelectToggle.setAttribute("aria-pressed", String(mode));
+    refs.filmstripSelectToggle.textContent = mode ? "退出多选" : "批量选择";
+  }
+  [refs.filmstripSelectAllButton, refs.filmstripSelectClearButton, refs.filmstripBatchDownloadButton].forEach((el) => {
+    if (el) {
+      el.classList.toggle("hidden", !mode);
+    }
+  });
+  if (refs.filmstripSelectionCount) {
+    refs.filmstripSelectionCount.classList.toggle("hidden", !mode);
+    refs.filmstripSelectionCount.textContent = `已选 ${count}`;
+  }
+  if (refs.filmstripBatchDownloadButton) {
+    refs.filmstripBatchDownloadButton.disabled = count === 0 || state.filmstripBatchDownloading;
+    refs.filmstripBatchDownloadButton.textContent = state.filmstripBatchDownloading ? "保存中..." : `下载所选 (${count})`;
+  }
+}
+
+function filmstripKeyToFilename(key) {
+  const normalized = String(key || "");
+  return normalized.startsWith("file:") ? normalized.slice(5) : "";
+}
+
+function isFilmstripItemSelectable(item) {
+  return Boolean(item && String(item.filename || "") && getImageUrl(item));
+}
+
+function toggleFilmstripSelectionByKey(key) {
+  const filename = filmstripKeyToFilename(key);
+  if (!filename) {
+    return;
+  }
+  toggleSelectionValue(state.filmstripSelection, filename);
+  renderFilmstripSelectionState();
+}
+
+function syncFilmstripSelectionState(shell, button, key, item) {
+  const mode = state.filmstripSelectionMode;
+  const selectable = mode && isFilmstripItemSelectable(item);
+  const filename = filmstripKeyToFilename(key);
+  const selected = selectable && state.filmstripSelection.has(filename);
+
+  shell.classList.toggle("is-selectable", selectable);
+  shell.classList.toggle("is-selected", selected);
+  button.setAttribute("aria-pressed", selectable ? String(selected) : "false");
+
+  let check = shell.querySelector(".filmstrip-tile-check");
+  if (selectable) {
+    if (!check) {
+      check = document.createElement("span");
+      check.className = "filmstrip-tile-check";
+      check.setAttribute("aria-hidden", "true");
+      shell.appendChild(check);
+    }
+    check.textContent = selected ? "\u2713" : "";
+  } else if (check) {
+    check.remove();
+  }
+}
+
+function setFilmstripSelectionMode(enabled) {
+  state.filmstripSelectionMode = Boolean(enabled);
+  if (!state.filmstripSelectionMode) {
+    state.filmstripSelection.clear();
+  }
+  renderFilmstripSelectionState();
+}
+
+function toggleFilmstripSelectionMode() {
+  setFilmstripSelectionMode(!state.filmstripSelectionMode);
+}
+
+function selectAllFilmstripItems() {
+  const selectable = getFilmstripSelectableItems();
+  const shouldDeselect = areAllItemsSelected(selectable, state.filmstripSelection);
+  selectable.forEach((item) => {
+    const filename = String(item.filename || "");
+    if (!filename) {
+      return;
+    }
+    if (shouldDeselect) {
+      state.filmstripSelection.delete(filename);
+    } else {
+      state.filmstripSelection.add(filename);
+    }
+  });
+  renderFilmstripSelectionState();
+}
+
+function clearFilmstripSelection() {
+  state.filmstripSelection.clear();
+  renderFilmstripSelectionState();
+}
+
+async function batchDownloadSelectedFilmstripItems() {
+  if (state.filmstripBatchDownloading) {
+    return;
+  }
+  const items = selectGalleryItemsByFilenames(getFilmstripSelectableItems(), [...state.filmstripSelection]);
+  if (items.length === 0) {
+    showError("请先勾选要下载的图片。");
+    return;
+  }
+
+  if (items.length === 1) {
+    try {
+      await downloadGalleryItem(items[0], null);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  state.filmstripBatchDownloading = true;
+  renderFilmstripSelectionToolbar();
+  try {
+    const result = await batchSaveGalleryItems(items);
+    if (!result.cancelled && result.failed > 0) {
+      showError(`已保存 ${result.saved} 张，${result.failed} 张无法读取。`);
+    }
+  } catch (error) {
+    showError(error instanceof Error ? error.message : String(error));
+  } finally {
+    state.filmstripBatchDownloading = false;
+    renderFilmstripSelectionToolbar();
+  }
 }
 
 function getGalleryColumnCount() {
@@ -6419,6 +6920,7 @@ function renderGalleryView() {
 
   scheduleGalleryPanelHeightSync();
   scheduleGalleryScrollSync();
+  renderGallerySelectionToolbar();
 }
 
 function renderStudio() {
@@ -6552,7 +7054,41 @@ function normalizePromptTemplate(template, index = 0) {
     id: String(template?.id || createPromptTemplateId()),
     name: String(template?.name || `模板 ${index + 1}`).trim() || `模板 ${index + 1}`,
     prompt,
+    analyzeTitle: template?.analyzeTitle === true,
+    params: normalizePromptTemplateParams(template?.params),
   };
+}
+
+function captureCurrentStudioParams() {
+  return {
+    ratio: refs.ratioInput?.value || DEFAULT_UI_RATIO,
+    size: getSelectedGenerationSize(),
+    format: normalizeOutputFormat(refs.outputFormatInput?.value || "png"),
+    reasoningEffort: refs.reasoningEffortInput?.value || "",
+  };
+}
+
+function applyPromptTemplateParams(params) {
+  const normalized = normalizePromptTemplateParams(params);
+  if (!normalized) {
+    return false;
+  }
+  if (normalized.ratio) {
+    syncGenerationRatio(normalized.ratio);
+  }
+  if (normalized.size) {
+    syncGenerationSize(normalized.size);
+  }
+  if (normalized.format && refs.outputFormatInput) {
+    refs.outputFormatInput.value = normalizeOutputFormat(normalized.format);
+  }
+  if (normalized.reasoningEffort && refs.reasoningEffortInput) {
+    const hasOption = [...refs.reasoningEffortInput.options].some((option) => option.value === normalized.reasoningEffort);
+    if (hasOption) {
+      refs.reasoningEffortInput.value = normalized.reasoningEffort;
+    }
+  }
+  return true;
 }
 
 function readPromptTemplates() {
@@ -6573,12 +7109,378 @@ function writePromptTemplates() {
   window.localStorage.setItem(PROMPT_TEMPLATE_STORAGE_KEY, JSON.stringify(state.promptTemplates));
 }
 
+function createPromptSetId() {
+  return `prompt-set-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function readPromptSets() {
+  try {
+    const raw = window.localStorage.getItem(PROMPT_SET_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map(normalizePromptSet).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePromptSets() {
+  window.localStorage.setItem(PROMPT_SET_STORAGE_KEY, JSON.stringify(state.promptSets));
+}
+
+function buildCurrentPromptKitShareData() {
+  return {
+    templates: state.promptTemplates,
+    sets: state.promptSets,
+    active: {
+      selectedTemplateId: state.selectedPromptTemplateId,
+      selectedSetId: state.selectedPromptSetId,
+      prompt: refs.promptInput?.value || "",
+      params: captureCurrentStudioParams(),
+      promptEnhanceEnabled: state.promptEnhanceEnabled,
+      promptEnhanceText: refs.promptEnhanceInput?.value || "",
+    },
+  };
+}
+
+async function sharePromptKit() {
+  const button = refs.sharePromptKitButton;
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "正在生成口令...";
+  setPromptKitCodeFeedback("正在整理模板与提示词...", "busy");
+  try {
+    const payload = await encodePromptKitSharePayload(buildCurrentPromptKitShareData());
+    const shareCode = formatPromptKitShareCode(payload);
+    triggerBrowserImageDownload(
+      new Blob([shareCode + "\n"], { type: "text/plain;charset=utf-8" }),
+      `提示词分享-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
+    );
+    setPromptKitCodeFeedback("已生成 TXT 下载文件，请将文件发给对方，并使用“导入 TXT”读取。", "success");
+  } catch (error) {
+    setPromptKitCodeFeedback(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
+function setPromptKitCodeFeedback(message = "", kind = "") {
+  refs.promptKitCodeFeedback.textContent = message;
+  refs.promptKitCodeFeedback.dataset.state = kind;
+}
+
+async function importPromptKitFile() {
+  const input = refs.promptKitFileInput;
+  const file = input.files?.[0];
+  if (!file) return;
+  refs.importPromptKitFileButton.disabled = true;
+  try {
+    if (file.size > 1_000_000) throw new Error("口令文件过大，请选择导出的 TXT 文件。");
+    const code = await file.text();
+    parsePromptKitShareCode(code);
+    refs.promptKitCodeInput.value = code;
+    await importPromptKitShareCode();
+  } catch (error) {
+    setPromptKitCodeFeedback(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    input.value = "";
+    refs.importPromptKitFileButton.disabled = false;
+  }
+}
+
+async function importPromptKitShareCode() {
+  const code = refs.promptKitCodeInput.value.trim();
+  if (!code) {
+    setPromptKitCodeFeedback("请先粘贴对方分享的口令。", "error");
+    refs.promptKitCodeInput.focus();
+    return;
+  }
+  const button = refs.importPromptKitCodeButton;
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "正在导入...";
+  setPromptKitCodeFeedback("正在读取分享口令...", "busy");
+  try {
+    const payload = parsePromptKitShareCode(code);
+    const shared = await decodePromptKitSharePayload(payload);
+    const merged = mergePromptKitShareData(state.promptTemplates, state.promptSets, shared);
+    state.promptTemplates = merged.templates.map(normalizePromptTemplate).filter(Boolean);
+    state.promptSets = merged.sets.map(normalizePromptSet).filter(Boolean);
+    state.selectedPromptTemplateId = state.promptTemplates.some((template) => template.id === merged.active.selectedTemplateId)
+      ? merged.active.selectedTemplateId
+      : state.promptTemplates[0]?.id || "";
+    state.selectedPromptSetId = state.promptSets.some((promptSet) => promptSet.id === merged.active.selectedSetId)
+      ? merged.active.selectedSetId
+      : state.promptSets[0]?.id || "";
+    const selectedPromptSet = state.promptSets.find((promptSet) => promptSet.id === state.selectedPromptSetId);
+    state.promptSetDraftTemplateIds = new Set(
+      resolvePromptSetTemplates(selectedPromptSet, state.promptTemplates).map((template) => template.id),
+    );
+    refs.promptSetNameInput.value = selectedPromptSet?.name || "";
+    refs.promptInput.value = merged.active.prompt || "";
+    applyPromptTemplateParams(merged.active.params);
+    state.promptEnhanceEnabled = Boolean(merged.active.promptEnhanceEnabled);
+    refs.promptEnhanceInput.value = merged.active.promptEnhanceText || DEFAULT_PROMPT_ENHANCE_TEXT;
+    syncPromptEnhanceMode();
+    updatePromptCounter();
+    writePromptTemplates();
+    writePromptSets();
+    renderPromptSets();
+    selectPromptTemplate(state.selectedPromptTemplateId);
+    refs.promptKitCodeInput.value = "";
+    setPromptKitCodeFeedback(
+      `导入完成：已获得 ${shared.templates.length} 个提示词模板和 ${shared.sets.length} 个套图模板。`,
+      "success",
+    );
+  } catch (error) {
+    setPromptKitCodeFeedback(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
+function getSelectedPromptSet() {
+  return state.promptSets.find((promptSet) => promptSet.id === state.selectedPromptSetId) || null;
+}
+
+function getPromptSetDraftTemplates() {
+  return state.promptTemplates.filter((template) => state.promptSetDraftTemplateIds.has(template.id));
+}
+
+function setPromptSetFeedback(message = "", kind = "") {
+  refs.promptSetFeedback.textContent = message;
+  refs.promptSetFeedback.dataset.state = kind;
+}
+
+function syncPromptSetDraftUi() {
+  const selectedCount = getPromptSetDraftTemplates().length;
+  refs.promptSetSelectionCount.textContent = `已选 ${selectedCount} 张`;
+  refs.generatePromptSetButton.disabled = state.promptSetGenerating || selectedCount === 0;
+  refs.savePromptSetButton.disabled = state.promptSetGenerating || selectedCount === 0;
+  refs.generatePromptSetButton.textContent = state.promptSetGenerating
+    ? "正在提交套图..."
+    : `生成所选套图${selectedCount ? `（${selectedCount} 张）` : ""}`;
+}
+
+function selectPromptSet(promptSetId) {
+  const promptSet = state.promptSets.find((entry) => entry.id === promptSetId) || null;
+  state.selectedPromptSetId = promptSet?.id || "";
+  refs.promptSetNameInput.value = promptSet?.name || "";
+  const availableTemplateIds = new Set(state.promptTemplates.map((template) => template.id));
+  state.promptSetDraftTemplateIds = new Set(
+    (promptSet?.templateIds || []).filter((templateId) => availableTemplateIds.has(templateId)),
+  );
+  setPromptSetFeedback(promptSet ? `已载入“${promptSet.name}”，可调整勾选后重新保存。` : "");
+  renderPromptSets();
+  renderPromptTemplates();
+}
+
+function renderPromptSets() {
+  refs.promptSetList.innerHTML = "";
+  if (state.promptSets.length === 0) {
+    const empty = document.createElement("span");
+    empty.className = "prompt-set-empty";
+    empty.textContent = "还没有套图模板，请先勾选提示词并保存。";
+    refs.promptSetList.appendChild(empty);
+    syncPromptSetDraftUi();
+    return;
+  }
+
+  state.promptSets.forEach((promptSet) => {
+    const templates = resolvePromptSetTemplates(promptSet, state.promptTemplates);
+    const card = document.createElement("div");
+    card.className = "prompt-set-card";
+    card.classList.toggle("active", promptSet.id === state.selectedPromptSetId);
+
+    const mainButton = document.createElement("button");
+    mainButton.className = "prompt-set-card-main";
+    mainButton.type = "button";
+    mainButton.title = `编辑套图：${promptSet.name}`;
+    const title = document.createElement("strong");
+    title.textContent = promptSet.name;
+    const meta = document.createElement("small");
+    meta.textContent = `${templates.length} 张图片`;
+    mainButton.append(title, meta);
+    mainButton.addEventListener("click", () => selectPromptSet(promptSet.id));
+    card.appendChild(mainButton);
+
+    const actions = document.createElement("div");
+    actions.className = "prompt-set-card-actions";
+    const generateButton = document.createElement("button");
+    generateButton.className = "mini-action";
+    generateButton.type = "button";
+    generateButton.textContent = "生成";
+    generateButton.disabled = state.promptSetGenerating || templates.length === 0;
+    generateButton.addEventListener("click", () => {
+      void startPromptSetGeneration(promptSet.id).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setPromptSetFeedback(message, "error");
+        showError(message);
+      });
+    });
+    actions.appendChild(generateButton);
+
+    const deleteButton = document.createElement("button");
+    deleteButton.className = "mini-action danger";
+    deleteButton.type = "button";
+    deleteButton.textContent = "删除";
+    deleteButton.disabled = state.promptSetGenerating;
+    deleteButton.addEventListener("click", () => deletePromptSet(promptSet.id));
+    actions.appendChild(deleteButton);
+    card.appendChild(actions);
+    refs.promptSetList.appendChild(card);
+  });
+  syncPromptSetDraftUi();
+}
+
+function resetPromptSetDraft() {
+  state.selectedPromptSetId = "";
+  state.promptSetDraftTemplateIds = new Set();
+  refs.promptSetNameInput.value = "";
+  setPromptSetFeedback("请勾选要加入新套图的提示词模板。", "");
+  renderPromptSets();
+  renderPromptTemplates();
+  refs.promptSetNameInput.focus();
+}
+
+function selectAllPromptTemplates() {
+  state.promptSetDraftTemplateIds = new Set(state.promptTemplates.map((template) => template.id));
+  setPromptSetFeedback(`已选择全部 ${state.promptTemplates.length} 个提示词模板。`);
+  renderPromptTemplates();
+  syncPromptSetDraftUi();
+}
+
+function clearPromptTemplateSelection() {
+  state.promptSetDraftTemplateIds = new Set();
+  setPromptSetFeedback("已清空套图选择。", "");
+  renderPromptTemplates();
+  syncPromptSetDraftUi();
+}
+
+function savePromptSet() {
+  const templates = getPromptSetDraftTemplates();
+  if (templates.length === 0) {
+    setPromptSetFeedback("请至少勾选一个提示词模板。", "error");
+    return;
+  }
+  const existing = getSelectedPromptSet();
+  const name = refs.promptSetNameInput.value.trim() || existing?.name || `套图 ${state.promptSets.length + 1}`;
+  const promptSet = {
+    id: existing?.id || createPromptSetId(),
+    name,
+    templateIds: templates.map((template) => template.id),
+    updatedAt: nowIso(),
+  };
+  if (existing) {
+    Object.assign(existing, promptSet);
+  } else {
+    state.promptSets.unshift(promptSet);
+  }
+  state.selectedPromptSetId = promptSet.id;
+  refs.promptSetNameInput.value = name;
+  writePromptSets();
+  renderPromptSets();
+  setPromptSetFeedback(`套图“${name}”已保存，共 ${templates.length} 张。`, "success");
+}
+
+function deletePromptSet(promptSetId = "") {
+  const promptSet = promptSetId
+    ? state.promptSets.find((entry) => entry.id === promptSetId)
+    : getSelectedPromptSet();
+  if (!promptSet) {
+    setPromptSetFeedback("请先选择一个套图模板。", "error");
+    return;
+  }
+  if (!window.confirm(`删除套图模板“${promptSet.name}”？提示词模板本身不会被删除。`)) {
+    return;
+  }
+  state.promptSets = state.promptSets.filter((entry) => entry.id !== promptSet.id);
+  writePromptSets();
+  if (state.selectedPromptSetId === promptSet.id) {
+    state.selectedPromptSetId = "";
+    state.promptSetDraftTemplateIds = new Set();
+    refs.promptSetNameInput.value = "";
+    renderPromptTemplates();
+  }
+  renderPromptSets();
+  setPromptSetFeedback("套图模板已删除。", "success");
+}
+
 function getSelectedPromptTemplate() {
   return state.promptTemplates.find((template) => template.id === state.selectedPromptTemplateId) || null;
 }
 
-function setPromptTemplateFeedback(message = "") {
+function setPromptTemplateFeedback(message = "", kind = "") {
   refs.promptTemplateFeedback.textContent = message;
+  refs.promptTemplateFeedback.dataset.state = kind;
+}
+
+function syncPromptTemplateBatchUi() {
+  const selectedCount = state.promptTemplateBatchSelectedIds.size;
+  const allSelected = state.promptTemplates.length > 0 && selectedCount === state.promptTemplates.length;
+  refs.promptTemplateList.classList.toggle("batch-mode", state.promptTemplateBatchMode);
+  refs.promptTemplateBatchToggleButton.classList.toggle("strong", state.promptTemplateBatchMode);
+  refs.promptTemplateBatchToggleButton.textContent = state.promptTemplateBatchMode ? "退出批量" : "批量管理";
+  refs.promptTemplateBatchSelectAllButton.classList.toggle("hidden", !state.promptTemplateBatchMode);
+  refs.promptTemplateBatchDeleteButton.classList.toggle("hidden", !state.promptTemplateBatchMode);
+  refs.promptTemplateBatchSelectAllButton.textContent = allSelected ? "取消全选" : "全选";
+  refs.promptTemplateBatchDeleteButton.textContent = `删除已选${selectedCount ? `（${selectedCount}）` : ""}`;
+  refs.promptTemplateBatchDeleteButton.disabled = selectedCount === 0;
+}
+
+function togglePromptTemplateBatchMode() {
+  state.promptTemplateBatchMode = !state.promptTemplateBatchMode;
+  state.promptTemplateBatchSelectedIds.clear();
+  renderPromptTemplates();
+  setPromptTemplateFeedback(state.promptTemplateBatchMode ? "勾选需要批量删除的提示词模板。" : "");
+}
+
+function toggleAllPromptTemplatesForBatch() {
+  if (state.promptTemplateBatchSelectedIds.size === state.promptTemplates.length) {
+    state.promptTemplateBatchSelectedIds.clear();
+  } else {
+    state.promptTemplateBatchSelectedIds = new Set(state.promptTemplates.map((template) => template.id));
+  }
+  renderPromptTemplates();
+}
+
+function movePromptTemplate(templateId, direction) {
+  state.promptTemplates = movePromptTemplateInList(state.promptTemplates, templateId, direction);
+  writePromptTemplates();
+  renderPromptTemplates();
+  setPromptTemplateFeedback(direction === "up" ? "提示词已上移。" : "提示词已下移。", "success");
+}
+
+function deleteSelectedPromptTemplates() {
+  const selectedIds = new Set(state.promptTemplateBatchSelectedIds);
+  if (selectedIds.size === 0) {
+    setPromptTemplateFeedback("请先勾选要删除的提示词模板。", "error");
+    return;
+  }
+  if (!window.confirm(`确定删除已选的 ${selectedIds.size} 个提示词模板？相关套图会自动移除这些提示词。`)) {
+    return;
+  }
+  const result = removePromptTemplatesFromLibrary(state.promptTemplates, state.promptSets, selectedIds);
+  state.promptTemplates = result.templates;
+  state.promptSets = result.sets.map(normalizePromptSet).filter(Boolean);
+  state.promptTemplateBatchSelectedIds.clear();
+  if (!state.promptTemplates.some((template) => template.id === state.selectedPromptTemplateId)) {
+    state.selectedPromptTemplateId = state.promptTemplates[0]?.id || "";
+  }
+  if (!state.promptSets.some((promptSet) => promptSet.id === state.selectedPromptSetId)) {
+    state.selectedPromptSetId = state.promptSets[0]?.id || "";
+  }
+  const selectedPromptSet = state.promptSets.find((promptSet) => promptSet.id === state.selectedPromptSetId);
+  state.promptSetDraftTemplateIds = new Set(
+    resolvePromptSetTemplates(selectedPromptSet, state.promptTemplates).map((template) => template.id),
+  );
+  refs.promptSetNameInput.value = selectedPromptSet?.name || "";
+  writePromptTemplates();
+  writePromptSets();
+  renderPromptSets();
+  selectPromptTemplate(state.selectedPromptTemplateId);
+  setPromptTemplateFeedback(`已删除 ${selectedIds.size} 个提示词模板。`, "success");
 }
 
 function selectPromptTemplate(templateId) {
@@ -6586,24 +7488,66 @@ function selectPromptTemplate(templateId) {
   state.selectedPromptTemplateId = template?.id || "";
   refs.promptTemplateNameInput.value = template?.name || "";
   refs.promptTemplateTextInput.value = template?.prompt || "";
+  refs.promptTemplateAnalyzeTitleToggle.checked = template?.analyzeTitle === true;
+  if (refs.promptTemplateSaveParamsToggle) {
+    refs.promptTemplateSaveParamsToggle.checked = Boolean(template?.params);
+  }
   renderPromptTemplates();
 }
 
 function renderPromptTemplates() {
   refs.promptTemplateList.innerHTML = "";
+  syncPromptTemplateBatchUi();
 
   if (state.promptTemplates.length === 0) {
     const empty = document.createElement("div");
     empty.className = "prompt-template-empty";
     empty.textContent = "暂无模板";
     refs.promptTemplateList.appendChild(empty);
+    syncPromptSetDraftUi();
     return;
   }
 
-  state.promptTemplates.forEach((template) => {
+  state.promptTemplates.forEach((template, index) => {
     const row = document.createElement("div");
     row.className = "prompt-template-item";
     row.classList.toggle("active", template.id === state.selectedPromptTemplateId);
+    row.classList.toggle(
+      "in-prompt-set",
+      !state.promptTemplateBatchMode && state.promptSetDraftTemplateIds.has(template.id),
+    );
+
+    const selectionCheckbox = document.createElement("input");
+    selectionCheckbox.className = "prompt-template-set-checkbox";
+    selectionCheckbox.type = "checkbox";
+    selectionCheckbox.checked = state.promptTemplateBatchMode
+      ? state.promptTemplateBatchSelectedIds.has(template.id)
+      : state.promptSetDraftTemplateIds.has(template.id);
+    selectionCheckbox.setAttribute(
+      "aria-label",
+      state.promptTemplateBatchMode ? `选择“${template.name}”进行批量删除` : `将“${template.name}”加入套图`,
+    );
+    selectionCheckbox.title = state.promptTemplateBatchMode ? "选择后可批量删除" : "勾选后加入当前套图";
+    selectionCheckbox.addEventListener("change", () => {
+      const targetSet = state.promptTemplateBatchMode
+        ? state.promptTemplateBatchSelectedIds
+        : state.promptSetDraftTemplateIds;
+      if (selectionCheckbox.checked) {
+        targetSet.add(template.id);
+      } else {
+        targetSet.delete(template.id);
+      }
+      if (state.promptTemplateBatchMode) {
+        row.classList.toggle("batch-selected", selectionCheckbox.checked);
+        syncPromptTemplateBatchUi();
+      } else {
+        row.classList.toggle("in-prompt-set", selectionCheckbox.checked);
+        syncPromptSetDraftUi();
+        setPromptSetFeedback("");
+      }
+    });
+    row.classList.toggle("batch-selected", state.promptTemplateBatchSelectedIds.has(template.id));
+    row.appendChild(selectionCheckbox);
 
     const titleButton = document.createElement("button");
     titleButton.className = "prompt-template-title-button";
@@ -6611,6 +7555,10 @@ function renderPromptTemplates() {
     titleButton.textContent = template.name;
     titleButton.title = template.name;
     titleButton.addEventListener("click", () => {
+      if (state.promptTemplateBatchMode) {
+        selectionCheckbox.click();
+        return;
+      }
       applyPromptTemplate(template.id);
       setPromptTemplateFeedback("");
     });
@@ -6618,6 +7566,26 @@ function renderPromptTemplates() {
 
     const actions = document.createElement("div");
     actions.className = "prompt-template-row-actions";
+
+    const moveUpButton = document.createElement("button");
+    moveUpButton.className = "mini-action prompt-template-move-action";
+    moveUpButton.type = "button";
+    moveUpButton.textContent = "↑";
+    moveUpButton.title = "上移提示词";
+    moveUpButton.setAttribute("aria-label", `上移“${template.name}”`);
+    moveUpButton.disabled = index === 0;
+    moveUpButton.addEventListener("click", () => movePromptTemplate(template.id, "up"));
+    actions.appendChild(moveUpButton);
+
+    const moveDownButton = document.createElement("button");
+    moveDownButton.className = "mini-action prompt-template-move-action";
+    moveDownButton.type = "button";
+    moveDownButton.textContent = "↓";
+    moveDownButton.title = "下移提示词";
+    moveDownButton.setAttribute("aria-label", `下移“${template.name}”`);
+    moveDownButton.disabled = index === state.promptTemplates.length - 1;
+    moveDownButton.addEventListener("click", () => movePromptTemplate(template.id, "down"));
+    actions.appendChild(moveDownButton);
 
     const editButton = document.createElement("button");
     editButton.className = "mini-action";
@@ -6640,12 +7608,15 @@ function renderPromptTemplates() {
     row.appendChild(actions);
     refs.promptTemplateList.appendChild(row);
   });
+  syncPromptSetDraftUi();
 }
 
 function resetPromptTemplateForm() {
   state.selectedPromptTemplateId = "";
   refs.promptTemplateNameInput.value = "";
   refs.promptTemplateTextInput.value = "";
+  refs.promptTemplateAnalyzeTitleToggle.checked = false;
+  refs.promptTemplateSaveParamsToggle.checked = false;
   refs.promptTemplateNameInput.focus();
   setPromptTemplateFeedback("");
   renderPromptTemplates();
@@ -6662,14 +7633,25 @@ function savePromptTemplate(event) {
 
   const existing = getSelectedPromptTemplate();
   const name = refs.promptTemplateNameInput.value.trim() || existing?.name || `模板 ${state.promptTemplates.length + 1}`;
+  const analyzeTitle = refs.promptTemplateAnalyzeTitleToggle.checked;
+  const saveParams = Boolean(refs.promptTemplateSaveParamsToggle?.checked);
+  const params = saveParams ? captureCurrentStudioParams() : null;
   if (existing) {
     existing.name = name;
     existing.prompt = prompt;
+    existing.analyzeTitle = analyzeTitle;
+    if (saveParams) {
+      existing.params = params;
+    } else {
+      delete existing.params;
+    }
   } else {
     const template = {
       id: createPromptTemplateId(),
       name,
       prompt,
+      analyzeTitle,
+      ...(saveParams ? { params } : {}),
     };
     state.promptTemplates.unshift(template);
     state.selectedPromptTemplateId = template.id;
@@ -6677,7 +7659,7 @@ function savePromptTemplate(event) {
 
   writePromptTemplates();
   selectPromptTemplate(state.selectedPromptTemplateId);
-  setPromptTemplateFeedback("模板已保存。");
+  setPromptTemplateFeedback(saveParams ? "模板与参数已保存。" : "模板已保存。");
 }
 
 function applyPromptTemplate(templateId = "") {
@@ -6693,7 +7675,11 @@ function applyPromptTemplate(templateId = "") {
     state.selectedPromptTemplateId = template.id;
   }
   refs.promptInput.value = prompt;
+  state.promptAnalyzeTitle = template ? template.analyzeTitle === true : refs.promptTemplateAnalyzeTitleToggle.checked;
   updatePromptCounter();
+  if (template?.params) {
+    applyPromptTemplateParams(template.params);
+  }
   setPromptTemplatePopoverOpen(false);
   refs.promptInput.focus();
 }
@@ -6718,13 +7704,18 @@ function deletePromptTemplate(templateId = "") {
   }
 
   state.promptTemplates = state.promptTemplates.filter((template) => template.id !== selected.id);
+  state.promptTemplateBatchSelectedIds.delete(selected.id);
+  state.promptSetDraftTemplateIds.delete(selected.id);
+  state.promptSets = removePromptTemplateFromSets(state.promptSets, selected.id);
   writePromptTemplates();
+  writePromptSets();
   const next =
     state.selectedPromptTemplateId === selected.id
       ? state.promptTemplates[0] || null
       : getSelectedPromptTemplate() || state.promptTemplates[0] || null;
   state.selectedPromptTemplateId = next?.id || "";
   selectPromptTemplate(state.selectedPromptTemplateId);
+  renderPromptSets();
   setPromptTemplateFeedback("模板已删除。");
 }
 
@@ -6738,6 +7729,7 @@ function setPromptTemplatePopoverOpen(open) {
     if (!state.selectedPromptTemplateId && state.promptTemplates.length > 0) {
       state.selectedPromptTemplateId = state.promptTemplates[0].id;
     }
+    renderPromptSets();
     selectPromptTemplate(state.selectedPromptTemplateId);
     refs.promptTemplateTextInput.focus();
   }
@@ -7131,7 +8123,7 @@ async function requestPptSlideEditStream() {
   formData.set("transitionSpeed", refs.pptTransitionSpeedInput.value);
   formData.set("autoAdvanceSeconds", refs.pptAutoAdvanceInput.value);
   formData.set("editInstruction", instruction);
-  formData.set("reasoningEffort", refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "xhigh");
+  formData.set("reasoningEffort", refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "low");
   formData.set("sourceSlideImage", await sourceResponse.blob(), `slide-${slideNumber}-source.png`);
   formData.set("annotatedSlideImage", await buildAnnotatedPptSlideBlob(), `slide-${slideNumber}-annotated.png`);
   appendCurrentConfigToFormData(formData);
@@ -7182,7 +8174,7 @@ function buildPptFormData() {
   formData.set("transitionPreset", refs.pptTransitionPresetInput.value);
   formData.set("transitionSpeed", refs.pptTransitionSpeedInput.value);
   formData.set("autoAdvanceSeconds", refs.pptAutoAdvanceInput.value);
-  formData.set("reasoningEffort", refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "xhigh");
+  formData.set("reasoningEffort", refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "low");
   appendCurrentConfigToFormData(formData);
   return formData;
 }
@@ -7200,7 +8192,7 @@ function buildPptCompletionRequest(slideNumbers) {
     transitionPreset: refs.pptTransitionPresetInput.value,
     transitionSpeed: refs.pptTransitionSpeedInput.value,
     autoAdvanceSeconds: refs.pptAutoAdvanceInput.value,
-    reasoningEffort: refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "xhigh",
+    reasoningEffort: refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "low",
   };
 }
 
@@ -8730,7 +9722,7 @@ function buildArticleIllustrationPlanFormData() {
   formData.set("supplementalPrompt", refs.articleIllustrationSupplementInput.value.trim());
   formData.set("contentType", refs.articleIllustrationContentTypeInput.value || "auto");
   formData.set("stylePreset", refs.articleIllustrationStylePresetInput.value || DEFAULT_ARTICLE_ILLUSTRATION_STYLE_PRESET);
-  formData.set("reasoningEffort", refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "xhigh");
+  formData.set("reasoningEffort", refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "low");
   state.articleIllustration.files.forEach((item) => {
     if (item.file) {
       formData.append("sourceFiles", item.file);
@@ -8749,7 +9741,7 @@ function buildArticleIllustrationGenerateFormData({ itemIds = [], regenerate = f
   formData.set("ratio", "3:2");
   formData.set("size", "auto");
   formData.set("format", "png");
-  formData.set("reasoningEffort", refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "xhigh");
+  formData.set("reasoningEffort", refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "low");
   formData.set("clientSessionId", state.clientSessionId);
   if (itemIds.length > 0) {
     formData.set("itemIds", JSON.stringify(itemIds));
@@ -11749,7 +12741,7 @@ function buildCreationFormData() {
   formData.set("format", normalizeOutputFormat(refs.creationOutputFormatInput.value || state.config?.defaults?.format || "png"));
   formData.set("ratio", refs.creationRatioInput.value || DEFAULT_UI_RATIO);
   formData.set("size", refs.creationSizeInput.value || "auto");
-  formData.set("reasoningEffort", refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "xhigh");
+  formData.set("reasoningEffort", refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "low");
   formData.set("clientSessionId", state.clientSessionId);
   state.creationReferenceFiles.forEach((item) => {
     const file = getCreationReferenceGenerationFile(item);
@@ -11781,7 +12773,7 @@ function buildCreationLogoBatchFormData() {
   formData.set("format", normalizeOutputFormat(refs.creationOutputFormatInput.value || state.config?.defaults?.format || "png"));
   formData.set("ratio", refs.creationRatioInput.value || DEFAULT_UI_RATIO);
   formData.set("size", refs.creationSizeInput.value || "auto");
-  formData.set("reasoningEffort", refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "xhigh");
+  formData.set("reasoningEffort", refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "low");
   formData.set("clientSessionId", state.clientSessionId);
   formData.set("logoOptions", JSON.stringify(getCreationLogoPayload()));
   state.creationLogoBatchFiles.forEach((item) => {
@@ -11822,7 +12814,7 @@ function buildCreationRepairFormData({ itemId = "", scope = "incomplete", set = 
   formData.set("format", normalizeOutputFormat(refs.creationOutputFormatInput.value || state.config?.defaults?.format || "png"));
   formData.set("ratio", refs.creationRatioInput.value || DEFAULT_UI_RATIO);
   formData.set("size", refs.creationSizeInput.value || "auto");
-  formData.set("reasoningEffort", refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "xhigh");
+  formData.set("reasoningEffort", refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "low");
   formData.set("clientSessionId", state.clientSessionId);
   formData.set("referenceImageRoles", JSON.stringify(getCreationRepairReferenceRolePayload(currentSet)));
   state.creationReferenceFiles.forEach((item) => {
@@ -12913,7 +13905,7 @@ function buildPortraitFormData({ includeFiles = true, repair = false, includeAct
   formData.set("size", refs.portraitSizeInput?.value || "auto");
   formData.set("format", normalizeOutputFormat(refs.portraitOutputFormatInput?.value || state.config?.defaults?.format || "png"));
   formData.set("analysis", JSON.stringify(currentSet?.analysis || {}));
-  formData.set("reasoningEffort", refs.reasoningEffortInput?.value || state.config?.defaults?.reasoningEffort || "xhigh");
+  formData.set("reasoningEffort", refs.reasoningEffortInput?.value || state.config?.defaults?.reasoningEffort || "low");
   formData.set("clientSessionId", state.clientSessionId);
   if (repair && currentSet?.setId) {
     formData.set("setId", currentSet.setId);
@@ -14027,27 +15019,34 @@ function buildStyleTransferPrompt() {
   return parts.join(" ");
 }
 
-function createJob() {
-  const ratioOption = getRatioOption(refs.ratioInput.value || DEFAULT_UI_RATIO);
+function createJob({ prompt = "", params = null, promptTemplateId = "", promptTemplateName = "", promptSetId = "", promptSetName = "" } = {}) {
+  const normalizedParams = normalizePromptTemplateParams(params);
+  const requestedRatio = normalizedParams?.ratio || refs.ratioInput.value || DEFAULT_UI_RATIO;
+  const ratioOption = getRatioOption(requestedRatio);
   const referenceFiles = state.referenceFiles.map(getGenerationReferenceFile);
   const referenceImageNames = state.referenceFiles.map((item) => item.file.name);
-  const sizeSetting = getSelectedGenerationSize();
-  const size = sizeSetting === "auto" ? ratioOption?.baseSize || getDefaultGenerationSize(ratioOption?.value) : sizeSetting;
+  const sizeSetting = normalizedParams?.size || getSelectedGenerationSize();
+  const ratio = ratioOption?.value || requestedRatio || DEFAULT_UI_RATIO;
+  const size = sizeSetting === "auto" ? ratioOption?.baseSize || getDefaultGenerationSize(ratio) : sizeSetting;
 
-  return {
+  const job = {
     id: `job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     createdAt: nowIso(),
-    prompt: buildPromptModePrompt(),
-    ratio: ratioOption?.value || DEFAULT_UI_RATIO,
-    ratioLabel: ratioOption?.label || DEFAULT_UI_RATIO_LABEL,
+    prompt: prompt ? buildEnhancedPrompt(prompt) : buildPromptModePrompt(),
+    promptTemplateId,
+    promptTemplateName,
+    promptSetId,
+    promptSetName,
+    ratio,
+    ratioLabel: ratioOption?.label || ratio,
     sizeSetting,
     size,
     quality: state.config?.defaults?.quality || "high",
-    format: normalizeOutputFormat(refs.outputFormatInput.value || state.config?.defaults?.format || "png"),
+    format: normalizeOutputFormat(normalizedParams?.format || refs.outputFormatInput.value || state.config?.defaults?.format || "png"),
     baseUrl: state.config?.baseUrl || refs.baseUrlInput.value.trim(),
     responsesModel: state.config?.responsesModel || refs.responsesModelInput.value.trim() || "gpt-5.4",
     imageModel: "gpt-image-2",
-    reasoningEffort: refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "xhigh",
+    reasoningEffort: normalizedParams?.reasoningEffort || refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "low",
     requestRetryCount: 0,
     referenceFiles,
     hasReferenceImage: referenceFiles.length > 0,
@@ -14059,6 +15058,74 @@ function createJob() {
     statusText: buildGenerationTaskStatusText({ statusStage: "queued", statusText: "等待并发槽位" }),
     previewUrl: "",
   };
+  if (prompt) {
+    job.prompt = buildEnhancedPrompt(prompt);
+  }
+  return job;
+}
+
+// Feature: clicking a generated image restores its prompt/parameters into the studio form
+// and re-adds the image itself as a reference so it can be tweaked and regenerated.
+function applyStudioParamsFromItem(item) {
+  if (!item) {
+    return;
+  }
+  const prompt = String(item.prompt || "").trim();
+  if (prompt) {
+    refs.promptInput.value = prompt;
+    updatePromptCounter();
+  }
+  if (item.ratio) {
+    syncGenerationRatio(item.ratio);
+  }
+  if (item.sizeSetting || item.size) {
+    syncGenerationSize(item.sizeSetting || item.size);
+  }
+  if (item.format && refs.outputFormatInput) {
+    const hasFormat = [...refs.outputFormatInput.options].some((option) => option.value === item.format);
+    if (hasFormat) {
+      refs.outputFormatInput.value = item.format;
+    }
+  }
+  if (item.reasoningEffort && refs.reasoningEffortInput) {
+    const hasEffort = [...refs.reasoningEffortInput.options].some((option) => option.value === item.reasoningEffort);
+    if (hasEffort) {
+      refs.reasoningEffortInput.value = item.reasoningEffort;
+    }
+  }
+}
+
+async function addGalleryItemAsReference(item) {
+  const imageUrl = getImageUrl(item);
+  if (!imageUrl) {
+    return;
+  }
+  try {
+    const blob = await resolveDownloadImageBlob(item, null);
+    if (!blob) {
+      return;
+    }
+    const baseName = String(item.filename || `reference-${Date.now()}.png`);
+    const file = new File([blob], baseName, { type: blob.type || "image/png" });
+    applyReferenceFiles([file]);
+  } catch (_error) {
+    // Restoring the reference image is best-effort; parameters are already applied.
+  }
+}
+
+async function applyItemConfigToStudio(item, { addReference = true } = {}) {
+  if (!item) {
+    return;
+  }
+  if (state.studioMode === "style-transfer") {
+    setStudioGenerationMode("prompt");
+  }
+  setActiveView("studio");
+  applyStudioParamsFromItem(item);
+  if (addReference) {
+    await addGalleryItemAsReference(item);
+  }
+  refs.promptInput.focus();
 }
 
 function createStyleTransferJob() {
@@ -14085,7 +15152,7 @@ function createStyleTransferJob() {
     baseUrl: state.config?.baseUrl || refs.baseUrlInput.value.trim(),
     responsesModel: state.config?.responsesModel || refs.responsesModelInput.value.trim() || "gpt-5.4",
     imageModel: "gpt-image-2",
-    reasoningEffort: refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "xhigh",
+    reasoningEffort: refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "low",
     requestRetryCount: 0,
     referenceFiles: getStyleTransferReferenceFiles(),
     hasReferenceImage: referenceFiles.length > 0,
@@ -14137,7 +15204,7 @@ function createReferenceAnalysisJob() {
     baseUrl: state.config?.baseUrl || refs.baseUrlInput.value.trim(),
     responsesModel: state.config?.responsesModel || refs.responsesModelInput.value.trim() || "gpt-5.4",
     imageModel: "gpt-image-2",
-    reasoningEffort: refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "xhigh",
+    reasoningEffort: refs.reasoningEffortInput.value || state.config?.defaults?.reasoningEffort || "low",
     requestRetryCount: 0,
     referenceFiles,
     hasReferenceImage: referenceFiles.length > 0,
@@ -14164,6 +15231,52 @@ function updateJob(jobId, patch) {
 
 function removeJob(jobId) {
   state.jobs = state.jobs.filter((job) => job.id !== jobId);
+}
+function finalizeFailedJob(job, message) {
+  if (!job) {
+    return;
+  }
+  if (!isRetryableStudioJob(job)) {
+    removeJob(job.id);
+    return;
+  }
+  const failedAt = nowIso();
+  updateJob(job.id, {
+    status: "error",
+    statusStage: "error",
+    statusText: message || "生成失败",
+    errorMessage: message || "生成失败",
+    isRunning: false,
+    started: true,
+    failedAt,
+  });
+}
+
+async function retryFailedJob(jobId) {
+  const failedJob = state.jobs.find((job) => job.id === jobId);
+  if (!failedJob || normalizeGenerationTaskStatus(failedJob.status) !== "error") {
+    return;
+  }
+  removeJob(jobId);
+  const retryJob = {
+    ...failedJob,
+    id: `job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: nowIso(),
+    isRunning: false,
+    started: false,
+    status: "running",
+    statusStage: "queued",
+    statusText: buildGenerationTaskStatusText({ statusStage: "queued", statusText: "等待并发槽位" }),
+    errorMessage: "",
+    failedAt: "",
+    previewUrl: "",
+    requestRetryCount: 0,
+  };
+  state.jobs.unshift(retryJob);
+  state.selectedPreviewKey = makeJobPreviewKey(retryJob.id);
+  recordJobQueued(retryJob);
+  renderAll();
+  scheduleGenerationQueue();
 }
 
 function cancelQueuedJob(jobId) {
@@ -14368,7 +15481,7 @@ function applyGenerationTaskSnapshots(tasks, { render = true } = {}) {
         requestRetryCount: existing?.requestRetryCount || 0,
       };
     });
-  const localTransientJobs = state.jobs.filter((job) => !snapshotIds.has(job.id) && (job.isRunning || !job.started));
+  const localTransientJobs = state.jobs.filter((job) => !snapshotIds.has(job.id) && (job.isRunning || !job.started || normalizeGenerationTaskStatus(job.status) === "error"));
   const hasLocalQueuedJobs = localTransientJobs.some((job) => isQueuedGenerationJob(job));
 
   state.generationTasks = snapshots;
@@ -14443,14 +15556,55 @@ async function saveConfig(event) {
 
   syncEndpointFieldsFromFullUrlModes();
   const payload = getCurrentPrivateConfigRequestPayload();
+  const configResponse = await fetch("/api/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      downloadDirectory: refs.downloadDirectoryInput?.value.trim() || "",
+    }),
+  });
+  const serverConfig = await configResponse.json().catch(() => ({}));
+  if (!configResponse.ok) {
+    throw new Error(serverConfig.message || "保存图片下载路径失败。");
+  }
 
   const browserConfig = saveBrowserPrivateConfig(payload);
-  state.config = toPublicBrowserConfig(browserConfig, state.config || {});
+  state.config = toPublicBrowserConfig(browserConfig, serverConfig);
   refs.apiKeyInput.value = "";
   refs.directApiKeyInput.value = "";
   refs.protocolApiKeyInput.value = "";
-  configModelPicker.setFeedback("配置已保存到当前浏览器。", "success");
+  configModelPicker.setFeedback("配置已保存，生成图片和手动下载将写入新的保存目录。", "success");
   syncConfigUi(state.config);
+}
+
+async function chooseDownloadDirectory() {
+  if (!refs.selectDownloadDirectoryButton) {
+    return;
+  }
+  refs.selectDownloadDirectoryButton.disabled = true;
+  refs.selectDownloadDirectoryButton.textContent = "选择中...";
+  try {
+    const response = await fetch("/api/download-directory/select", { method: "POST" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || "打开文件夹选择器失败。");
+    }
+    if (!payload.cancelled && payload.directory) {
+      refs.downloadDirectoryInput.value = payload.directory;
+      configModelPicker.setFeedback("已选择图片保存文件夹，请点击保存使其生效。", "success");
+    }
+  } finally {
+    refs.selectDownloadDirectoryButton.disabled = false;
+    refs.selectDownloadDirectoryButton.textContent = "选择文件夹";
+  }
+}
+
+async function openConfiguredDownloadDirectory() {
+  const response = await fetch("/api/download-directory/open", { method: "POST" });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || "打开图片下载目录失败。");
+  }
 }
 
 async function openOutputDirectory() {
@@ -15042,7 +16196,7 @@ async function runGeneration(job) {
           removeQuickBlendGenerationKey(makeJobPreviewKey(job.id));
           setQuickBlendFeedback(message, "error");
         }
-        removeJob(job.id);
+        finalizeFailedJob(job, message);
         renderAll();
       }
     });
@@ -15065,7 +16219,7 @@ async function runGeneration(job) {
         removeQuickBlendGenerationKey(makeJobPreviewKey(job.id));
         setQuickBlendFeedback(message, "error");
       }
-      removeJob(job.id);
+      finalizeFailedJob(job, message);
       renderAll();
     }
   } catch (error) {
@@ -15090,7 +16244,7 @@ async function runGeneration(job) {
       removeQuickBlendGenerationKey(makeJobPreviewKey(job.id));
       setQuickBlendFeedback(message, "error");
     }
-    removeJob(job.id);
+    finalizeFailedJob(job, message);
     renderAll();
   } finally {
     const currentJob = state.jobs.find((entry) => entry.id === job.id);
@@ -15102,6 +16256,62 @@ async function runGeneration(job) {
     }
     updateGenerateButton();
     scheduleGenerationQueue();
+  }
+}
+
+async function startPromptSetGeneration(promptSetId = "") {
+  clearError();
+  const savedPromptSet = promptSetId
+    ? state.promptSets.find((entry) => entry.id === promptSetId) || null
+    : null;
+  const editingPromptSet = getSelectedPromptSet();
+  const draftTemplates = getPromptSetDraftTemplates();
+  const promptSet = savedPromptSet || {
+    id: editingPromptSet?.id || "",
+    name: refs.promptSetNameInput.value.trim() || editingPromptSet?.name || "临时套图",
+    templateIds: draftTemplates.map((template) => template.id),
+  };
+  const templates = savedPromptSet
+    ? resolvePromptSetTemplates(savedPromptSet, state.promptTemplates)
+    : draftTemplates;
+  if (templates.length === 0) {
+    setPromptSetFeedback("这个套图没有可生成的提示词，请重新勾选并保存。", "error");
+    return;
+  }
+
+  const productTitle = refs.productTitleInput.value.trim();
+  if (!productTitle) {
+    setPromptSetFeedback("请先在生成区域填写产品标题。", "error");
+    showError("产品标题不能为空。");
+    return;
+  }
+  state.promptSetGenerating = true;
+  setPromptSetFeedback(`正在准备“${promptSet.name}”的 ${templates.length} 个生成任务...`, "busy");
+  renderPromptSets();
+  try {
+    if (state.studioMode === "style-transfer") {
+      setStudioGenerationMode("prompt");
+    }
+    await ensureReferenceGenerationFilesReady();
+    const jobs = templates.map((template) => createJob({
+      prompt: buildTitleAwarePrompt(template.prompt, productTitle, template.analyzeTitle),
+      params: template.params,
+      promptTemplateId: template.id,
+      promptTemplateName: template.name,
+      promptSetId: promptSet.id,
+      promptSetName: promptSet.name,
+    }));
+    state.jobs.unshift(...jobs);
+    jobs.forEach(recordJobQueued);
+    state.selectedPreviewKey = makeJobPreviewKey(jobs[0].id);
+    setPromptSetFeedback(`“${promptSet.name}”已提交，共 ${jobs.length} 张图片。`, "success");
+    setPromptTemplatePopoverOpen(false);
+    setActiveView("studio");
+    renderAll();
+    scheduleGenerationQueue();
+  } finally {
+    state.promptSetGenerating = false;
+    renderPromptSets();
   }
 }
 
@@ -15134,6 +16344,11 @@ async function startGeneration(event) {
     return;
   }
 
+  if (!refs.productTitleInput.value.trim()) {
+    showError("产品标题不能为空。");
+    refs.productTitleInput.focus();
+    return;
+  }
   const prompt = refs.promptInput.value.trim();
   if (!prompt) {
     showError("提示词不能为空。");
@@ -15301,6 +16516,11 @@ function handleGlobalNavAction(action) {
     return;
   }
 
+  if (action === "brand") {
+    siteBranding.open();
+    return;
+  }
+
   if (action === "output") {
     openOutputDirectory().catch((error) => showError(error.message));
   }
@@ -15333,28 +16553,127 @@ function getClipboardImageFiles(clipboardData) {
   return [...(clipboardData?.files || [])].filter((file) => file.type.startsWith("image/"));
 }
 
-function handleStudioImagePaste(event) {
-  const imageFiles = getClipboardImageFiles(event.clipboardData);
-  if (imageFiles.length === 0) {
+async function decodeClipboardImageFile(file) {
+  if (typeof createImageBitmap === "function") {
+    const bitmap = await createImageBitmap(file);
+    try {
+      if (!bitmap.width || !bitmap.height) {
+        throw new Error("剪贴板图片没有有效尺寸。");
+      }
+    } finally {
+      if (typeof bitmap.close === "function") {
+        bitmap.close();
+      }
+    }
     return;
   }
 
-  event.preventDefault();
-  if (state.studioMode === "style-transfer") {
-    applyStyleTransferReferenceFile("source", imageFiles);
-    return;
+  const previewUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = previewUrl;
+    if (typeof image.decode === "function") {
+      await image.decode();
+    } else {
+      await new Promise((resolve, reject) => {
+        image.addEventListener("load", resolve, { once: true });
+        image.addEventListener("error", () => reject(new Error("浏览器无法解码剪贴板图片。")), { once: true });
+      });
+    }
+    if (!image.naturalWidth || !image.naturalHeight) {
+      throw new Error("剪贴板图片没有有效尺寸。");
+    }
+  } finally {
+    URL.revokeObjectURL(previewUrl);
   }
-
-  applyReferenceFiles(imageFiles);
 }
 
-function handleCreationReferenceImagePaste(event) { if (state.activeView !== "creation" || isCreationLogoBatchBranch()) return; const imageFiles = getClipboardImageFiles(event.clipboardData); if (imageFiles.length === 0) return; event.preventDefault(); applyCreationReferenceFiles(imageFiles); }
+function getActiveImagePasteRouteContext() {
+  const view = state.activeView;
+  if (!["studio", "style-transfer", "reference-analysis", "image-decomposition", "creation", "portrait"].includes(view)) {
+    return null;
+  }
+  return {
+    view,
+    studioMode: state.studioMode,
+    creationLogoBatch: view === "creation" && isCreationLogoBatchBranch(),
+  };
+}
+
+// Routes a clipboard image paste to the upload dropzone of the currently active
+// view/mode, so users can Ctrl+V straight into "图片上传方式" without first
+// focusing a text field. Returns true when the paste was consumed.
+function routeImagePasteToActiveDropzone(imageFiles, routeContext = getActiveImagePasteRouteContext()) {
+  const view = routeContext?.view;
+
+  if (view === "studio") {
+    if (routeContext.studioMode === "style-transfer") {
+      applyStyleTransferReferenceFile("source", imageFiles);
+    } else {
+      applyReferenceFiles(imageFiles);
+    }
+    return true;
+  }
+  if (view === "style-transfer") {
+    applyStyleTransferReferenceFile("source", imageFiles);
+    return true;
+  }
+  if (view === "reference-analysis") {
+    applyReferenceAnalysisFiles(imageFiles);
+    return true;
+  }
+  if (view === "image-decomposition") {
+    applyImageDecompositionFile(imageFiles);
+    return true;
+  }
+  if (view === "creation") {
+    if (routeContext.creationLogoBatch) {
+      applyCreationLogoBatchSourceFiles(imageFiles);
+    } else {
+      applyCreationReferenceFiles(imageFiles);
+    }
+    return true;
+  }
+  if (view === "portrait") {
+    applyPortraitReferenceFiles(imageFiles, "person");
+    return true;
+  }
+
+  return false;
+}
+
+function handleGlobalImagePaste(event) {
+  const imageFiles = getClipboardImageFiles(event.clipboardData);
+  const routeContext = getActiveImagePasteRouteContext();
+  if (imageFiles.length === 0 || !routeContext) {
+    return;
+  }
+  event.preventDefault();
+
+  void prepareClipboardImageFiles(imageFiles, {
+    decodeImageFile: decodeClipboardImageFile,
+    retryDelayMs: 60,
+  }).then(({ acceptedFiles, rejectedFiles }) => {
+    if (acceptedFiles.length > 0) {
+      routeImagePasteToActiveDropzone(acceptedFiles, routeContext);
+    }
+    if (rejectedFiles.length > 0) {
+      const message = acceptedFiles.length > 0
+        ? `已粘贴 ${acceptedFiles.length} 张图片，另有 ${rejectedFiles.length} 张读取失败，请重新复制后再试。`
+        : rejectedFiles[0].message || "粘贴的图片读取失败，请重新复制后再试。";
+      showError(message);
+    }
+  }).catch((error) => {
+    showError(error instanceof Error ? error.message : "粘贴的图片读取失败，请重新复制后再试。");
+  });
+}
 function bindEvents() {
   creationLogoLibrary.bind();
+  siteBranding.bind();
   bindGlobalNavEvents();
   bindTopbarRevealEvents();
   bindAdaptiveWorkbenchSections();
-  document.addEventListener("paste", handleCreationReferenceImagePaste);
+  document.addEventListener("paste", handleGlobalImagePaste);
 
   refs.viewTabs.forEach((button) => {
     button.addEventListener("click", () => {
@@ -15396,6 +16715,13 @@ function bindEvents() {
   refs.configForm.addEventListener("submit", (event) => {
     saveConfig(event).catch((error) => showError(error.message));
   });
+  refs.selectDownloadDirectoryButton?.addEventListener("click", () => {
+    chooseDownloadDirectory().catch((error) => showError(error instanceof Error ? error.message : String(error)));
+  });
+  refs.openDownloadDirectoryButton?.addEventListener("click", () => {
+    openConfiguredDownloadDirectory().catch((error) => showError(error instanceof Error ? error.message : String(error)));
+  });
+  document.addEventListener("click", handleConfiguredImageDownloadClick);
   refs.imageRouteInputs.forEach((input) => input.addEventListener("change", () => {
     updateGenerationModeStatus();
     syncEndpointFieldsFromFullUrlModes();
@@ -16107,11 +17433,37 @@ function bindEvents() {
   refs.newPromptTemplateButton.addEventListener("click", resetPromptTemplateForm);
   refs.applyPromptTemplateButton.addEventListener("click", applyPromptTemplate);
   refs.deletePromptTemplateButton.addEventListener("click", deletePromptTemplate);
+  refs.selectAllPromptTemplatesButton.addEventListener("click", selectAllPromptTemplates);
+  refs.clearPromptTemplateSelectionButton.addEventListener("click", clearPromptTemplateSelection);
+  refs.newPromptSetButton.addEventListener("click", resetPromptSetDraft);
+  refs.savePromptSetButton.addEventListener("click", savePromptSet);
+  refs.sharePromptKitButton.addEventListener("click", () => {
+    void sharePromptKit();
+  });
+  refs.importPromptKitCodeButton.addEventListener("click", () => {
+    void importPromptKitShareCode();
+  });
+  refs.importPromptKitFileButton.addEventListener("click", () => refs.promptKitFileInput.click());
+  refs.promptKitFileInput.addEventListener("change", () => { void importPromptKitFile(); });
+  refs.promptKitCodeInput.addEventListener("input", () => setPromptKitCodeFeedback(""));
+  refs.promptTemplateBatchToggleButton.addEventListener("click", togglePromptTemplateBatchMode);
+  refs.promptTemplateBatchSelectAllButton.addEventListener("click", toggleAllPromptTemplatesForBatch);
+  refs.promptTemplateBatchDeleteButton.addEventListener("click", deleteSelectedPromptTemplates);
+  refs.generatePromptSetButton.addEventListener("click", () => {
+    void startPromptSetGeneration().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setPromptSetFeedback(message, "error");
+      showError(message);
+    });
+  });
   refs.promptInput.addEventListener("input", updatePromptCounter);
   refs.promptInput.addEventListener("keydown", handlePromptGenerationShortcut);
-  refs.promptInput.addEventListener("paste", handleStudioImagePaste); refs.promptEnhanceToggle.addEventListener("click", togglePromptEnhanceMode); refs.promptEnhanceInput.addEventListener("keydown", handlePromptGenerationShortcut);
+  refs.clearPromptButton?.addEventListener("click", clearPromptInput);
+  refs.clearReferenceButton?.addEventListener("click", () => {
+    resetReferenceFiles();
+  });
+  refs.promptEnhanceToggle.addEventListener("click", togglePromptEnhanceMode); refs.promptEnhanceInput.addEventListener("keydown", handlePromptGenerationShortcut);
   refs.styleTransferInstructionInput.addEventListener("keydown", handlePromptGenerationShortcut);
-  refs.styleTransferInstructionInput.addEventListener("paste", handleStudioImagePaste);
   refs.styleTransferPresetComparison.addEventListener("click", handleStyleTransferPresetComparisonClick);
   refs.styleTransferPresetInput.addEventListener("change", handleStyleTransferPresetChange);
   refs.sizeInput.addEventListener("change", (event) => {
@@ -16301,6 +17653,18 @@ function bindEvents() {
   refs.refreshGalleryButton.addEventListener("click", () => {
     loadGallery().catch((error) => showError(error.message));
   });
+  refs.gallerySelectToggle?.addEventListener("click", toggleGallerySelectionMode);
+  refs.gallerySelectAllButton?.addEventListener("click", selectAllGalleryItems);
+  refs.gallerySelectClearButton?.addEventListener("click", clearGallerySelection);
+  refs.galleryBatchDownloadButton?.addEventListener("click", () => {
+    batchDownloadSelectedGalleryItems().catch((error) => showError(error.message));
+  });
+  refs.filmstripSelectToggle?.addEventListener("click", toggleFilmstripSelectionMode);
+  refs.filmstripSelectAllButton?.addEventListener("click", selectAllFilmstripItems);
+  refs.filmstripSelectClearButton?.addEventListener("click", clearFilmstripSelection);
+  refs.filmstripBatchDownloadButton?.addEventListener("click", () => {
+    batchDownloadSelectedFilmstripItems().catch((error) => showError(error.message));
+  });
   refs.galleryColumnButtons.forEach((button) => {
     button.addEventListener("click", () => {
       const preset = normalizeGalleryColumnPreset(button.dataset.galleryColumnPreset);
@@ -16374,6 +17738,18 @@ function bindEvents() {
 
     deleteGalleryItem(item).catch((error) => showError(error.message));
   });
+  refs.previewRetryButton?.addEventListener("click", () => {
+    const job = getSelectedJob();
+    if (job) {
+      retryFailedJob(job.id).catch((error) => showError(error.message));
+    }
+  });
+  refs.previewApplyConfigButton?.addEventListener("click", () => {
+    const item = getCurrentPreviewItem();
+    if (item) {
+      applyItemConfigToStudio(item).catch((error) => showError(error.message));
+    }
+  });
   refs.previewImage.addEventListener("click", () => {
     const item = getCurrentPreviewItem();
     if (item && getImageUrl(item)) {
@@ -16438,6 +17814,14 @@ function bindEvents() {
     }
 
     deleteGalleryItem(state.lightboxItem).catch((error) => showError(error.message));
+  });
+  refs.lightboxApplyConfigButton?.addEventListener("click", () => {
+    const item = state.lightboxItem;
+    if (!item || !canApplyItemConfig(item)) {
+      return;
+    }
+    closeLightbox();
+    applyItemConfigToStudio(item).catch((error) => showError(error.message));
   });
   refs.lightboxDownload.addEventListener("click", (event) => {
     event.preventDefault();
@@ -16547,6 +17931,7 @@ function bindEvents() {
 
 async function bootstrap() {
   state.clientSessionId = getOrCreateClientSessionId();
+  await siteBranding.load();
   state.uiLanguage = readUiLanguage();
   syncUiLanguage();
   state.uiTheme = readUiTheme();
@@ -16554,7 +17939,14 @@ async function bootstrap() {
   state.activityFeed = readGenerationActivityFeed();
   state.galleryMetadataCache = readGalleryMetadataCache();
   state.promptTemplates = readPromptTemplates();
+  state.promptSets = readPromptSets();
   state.selectedPromptTemplateId = state.promptTemplates[0]?.id || "";
+  state.selectedPromptSetId = state.promptSets[0]?.id || "";
+  const selectedPromptSet = state.promptSets.find((promptSet) => promptSet.id === state.selectedPromptSetId);
+  state.promptSetDraftTemplateIds = new Set(
+    resolvePromptSetTemplates(selectedPromptSet, state.promptTemplates).map((template) => template.id),
+  );
+  refs.promptSetNameInput.value = selectedPromptSet?.name || "";
   bindEvents();
   bindStudioDensitySync();
   bindStudioHeightSync();
@@ -16575,6 +17967,7 @@ async function bootstrap() {
   renderReferenceGrid();
   renderQuickBlendView();
   renderStyleTransferReferences();
+  renderPromptSets();
   renderPromptTemplates();
   renderTimeline();
   setActiveView(getViewFromHash());

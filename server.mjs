@@ -3,13 +3,14 @@ import dns from "node:dns";
 import { createServer } from "node:http";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, stat } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 import { createConfigStore } from "./lib/config-store.mjs";
+import { ensureDownloadDirectory, saveDownloadFile } from "./lib/download-directory.mjs";
 import {
   appendRatioHintToPrompt,
   getAspectRatioOptions,
@@ -164,19 +165,39 @@ import { buildArticleRelativeDir, createArticleIllustrationSetStore } from "./li
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const publicDir = join(rootDir, "public");
 const libDir = join(rootDir, "lib");
-const outputDir =
-  process.env.IMAGE_STUDIO_OUTPUT_DIR ||
-  (process.env.VERCEL ? join(tmpdir(), "gpt-image2-studio-output") : join(homedir(), "Pictures"));
 const localDataRootDir =
   process.env.IMAGE_STUDIO_LOCAL_DATA_DIR ||
   (process.env.VERCEL ? join(tmpdir(), "gpt-image2-studio-local") : rootDir);
 const configStore = createConfigStore({ rootDir: localDataRootDir, env: process.env });
+const startupConfig = await configStore.readPrivateConfig();
+const fallbackOutputDir =
+  process.env.IMAGE_STUDIO_OUTPUT_DIR ||
+  (process.env.VERCEL ? join(tmpdir(), "gpt-image2-studio-output") : join(homedir(), "Pictures"));
+let outputDir = startupConfig.downloadDirectory || fallbackOutputDir;
 const promptAgentStore = createPromptAgentStore({ rootDir: localDataRootDir });
 const generationTaskStore = createGenerationTaskStore();
-const pptDeckStore = createPptDeckStore({ outputDir, publicBasePath: "/output" });
-const creationSetStore = createCreationSetStore({ outputDir, publicBasePath: "/output" });
-const portraitSetStore = createPortraitSetStore({ outputDir, publicBasePath: "/output" });
-const articleIllustrationSetStore = createArticleIllustrationSetStore({ outputDir, publicBasePath: "/output" });
+let pptDeckStore;
+let creationSetStore;
+let portraitSetStore;
+let articleIllustrationSetStore;
+
+function bindOutputStores() {
+  pptDeckStore = createPptDeckStore({ outputDir, publicBasePath: "/output" });
+  creationSetStore = createCreationSetStore({ outputDir, publicBasePath: "/output" });
+  portraitSetStore = createPortraitSetStore({ outputDir, publicBasePath: "/output" });
+  articleIllustrationSetStore = createArticleIllustrationSetStore({ outputDir, publicBasePath: "/output" });
+}
+
+async function switchOutputDirectory(directory) {
+  const nextOutputDir = directory || fallbackOutputDir;
+  await mkdir(nextOutputDir, { recursive: true });
+  await migrateOutputDirectoryMonths({ outputDir: nextOutputDir });
+  outputDir = nextOutputDir;
+  bindOutputStores();
+  return outputDir;
+}
+
+bindOutputStores();
 const port = Number(process.env.PORT || 3600);
 const DEFAULT_CREATION_LISTING_REASONING_EFFORT = "medium";
 const CREATION_REFERENCE_ANALYSIS_REASONING_EFFORT = "low";
@@ -459,6 +480,45 @@ function openDirectory(targetDir) {
   child.unref();
 }
 
+function selectDownloadDirectory(initialDirectory = "") {
+  if (process.platform !== "win32") {
+    throw new Error("当前平台暂不支持文件夹选择器，请直接填写完整路径。");
+  }
+
+  const script = [
+    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()",
+    "Add-Type -AssemblyName System.Windows.Forms",
+    "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
+    "$dialog.Description = '选择图片下载目录'",
+    "$dialog.ShowNewFolderButton = $true",
+    "if ($env:IMAGE_STUDIO_FOLDER_PICKER_INITIAL) { $dialog.SelectedPath = $env:IMAGE_STUDIO_FOLDER_PICKER_INITIAL }",
+    "$result = $dialog.ShowDialog()",
+    "if ($result -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Write($dialog.SelectedPath) }",
+  ].join("; ");
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-STA", "-Command", script],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          IMAGE_STUDIO_FOLDER_PICKER_INITIAL: initialDirectory,
+        },
+        windowsHide: false,
+      },
+      (error, stdout) => {
+        if (error) {
+          rejectPromise(new Error(`打开文件夹选择器失败：${error.message}`));
+          return;
+        }
+        resolvePromise(String(stdout || "").trim());
+      },
+    );
+  });
+}
+
 function getClientSessionId(request, formData) {
   const headerValue = request.headers["x-client-session-id"];
   const formValue = formData.get("clientSessionId");
@@ -530,31 +590,43 @@ function resolveGenerationSizeForRoute(ratioOption, requestedSizeInput, imageRou
 async function handleConfigGet(response) {
   sendJson(response, 200, {
     ...(await configStore.readPublicConfig()),
+    effectiveOutputDirectory: outputDir,
     aspectRatios: getAspectRatioOptions(),
   });
 }
 
 async function handleConfigPost(request, response) {
   const payload = await readJsonBody(request);
-  await configStore.saveConfig({
-    baseUrl: payload.baseUrl,
-    apiKey: payload.apiKey,
-    endpointPath: payload.endpointPath,
-    responsesModel: payload.responsesModel,
-    imageRoute: payload.imageRoute,
-    directBaseUrl: payload.directBaseUrl,
-    directApiKey: payload.directApiKey,
-    directEndpointPath: payload.directEndpointPath,
-    directImageModel: payload.directImageModel,
-    directResponsesModel: payload.directResponsesModel,
-    protocolBaseUrl: payload.protocolBaseUrl,
-    protocolApiKey: payload.protocolApiKey,
-    protocolImageModel: payload.protocolImageModel,
-    defaults: payload.defaults,
-  });
+  const supportedKeys = [
+    "baseUrl",
+    "apiKey",
+    "endpointPath",
+    "responsesModel",
+    "imageRoute",
+    "directBaseUrl",
+    "directApiKey",
+    "directEndpointPath",
+    "directImageModel",
+    "directResponsesModel",
+    "protocolBaseUrl",
+    "protocolApiKey",
+    "protocolImageModel",
+    "defaults",
+  ];
+  const nextConfig = Object.fromEntries(
+    supportedKeys.filter((key) => Object.prototype.hasOwnProperty.call(payload, key)).map((key) => [key, payload[key]]),
+  );
+  if (Object.prototype.hasOwnProperty.call(payload, "downloadDirectory")) {
+    nextConfig.downloadDirectory = await ensureDownloadDirectory(payload.downloadDirectory);
+  }
+  await configStore.saveConfig(nextConfig);
+  if (Object.prototype.hasOwnProperty.call(nextConfig, "downloadDirectory")) {
+    await switchOutputDirectory(nextConfig.downloadDirectory);
+  }
 
   sendJson(response, 200, {
     ...(await configStore.readPublicConfig()),
+    effectiveOutputDirectory: outputDir,
     aspectRatios: getAspectRatioOptions(),
   });
 }
@@ -619,6 +691,53 @@ async function handleOpenOutput(response) {
     ok: true,
     outputDir: todayOutputDir,
   });
+}
+
+async function handleSelectDownloadDirectory(response) {
+  const config = await configStore.readPrivateConfig();
+  const directory = await selectDownloadDirectory(config.downloadDirectory || "");
+  sendJson(response, 200, {
+    ok: true,
+    cancelled: !directory,
+    directory,
+  });
+}
+
+async function handleOpenDownloadDirectory(response) {
+  const config = await configStore.readPrivateConfig();
+  if (!config.downloadDirectory) {
+    return sendJson(response, 400, { message: "请先设置并保存图片下载目录。" });
+  }
+  const directory = await ensureDownloadDirectory(config.downloadDirectory);
+  openDirectory(directory);
+  return sendJson(response, 200, { ok: true, directory });
+}
+
+async function handleImageDownload(request, response) {
+  const config = await configStore.readPrivateConfig();
+  if (!config.downloadDirectory) {
+    return sendJson(response, 409, { message: "尚未配置图片下载目录。" });
+  }
+
+  const formData = await readFormDataBody(request);
+  const image = formData.get("image");
+  if (!image || typeof image.arrayBuffer !== "function") {
+    return sendJson(response, 400, { message: "没有收到可保存的图片。" });
+  }
+  if (image.type && !String(image.type).startsWith("image/")) {
+    return sendJson(response, 415, { message: "下载接口仅支持图片文件。" });
+  }
+  if (image.size > 100 * 1024 * 1024) {
+    return sendJson(response, 413, { message: "单张图片不能超过 100 MB。" });
+  }
+
+  const requestedFilename = String(formData.get("filename") || image.name || "image.png").trim();
+  const saved = await saveDownloadFile({
+    directory: config.downloadDirectory,
+    filename: requestedFilename,
+    data: new Uint8Array(await image.arrayBuffer()),
+  });
+  return sendJson(response, 200, { ok: true, ...saved });
 }
 
 async function handleDeleteOutput(request, response) {
@@ -5145,6 +5264,7 @@ async function handleGenerate(request, response) {
       endpointPath: generationConfig.endpointPath,
       generationMode,
       reasoningEffort,
+      taskId,
     };
     let generationResult;
 
@@ -5249,7 +5369,25 @@ async function handleGenerate(request, response) {
       filenameKeyword: quickBlendFilenameToken,
       omitDatePrefix: isQuickBlend,
     });
-    const imageBuffer = Buffer.from(normalizeBase64(finalBase64), "base64");
+    const normalizedFinalBase64 = normalizeBase64(finalBase64);
+    console.error(JSON.stringify({
+      tag: "generation-debug",
+      phase: "post-processing-input",
+      taskId,
+      imageRoute: generationConfig.imageRoute,
+      endpointPath: generationResult.endpointPath || generationConfig.endpointPath,
+      base64Length: String(finalBase64 || "").length,
+      normalizedBase64Length: normalizedFinalBase64.length,
+      timestamp: new Date().toISOString(),
+    }));
+    const imageBuffer = Buffer.from(normalizedFinalBase64, "base64");
+    console.error(JSON.stringify({
+      tag: "generation-debug",
+      phase: "post-processing-buffer",
+      taskId,
+      bufferLength: imageBuffer.length,
+      timestamp: new Date().toISOString(),
+    }));
     const saved = await saveGeneratedAsset({
       outputDir,
       filename,
@@ -5333,6 +5471,16 @@ async function handleGenerate(request, response) {
       generationCompletedAt,
       generationDurationMs,
     });
+
+    console.error(JSON.stringify({
+      tag: "generation-debug",
+      phase: "post-processing-saved",
+      taskId,
+      filename,
+      absolutePath: saved.absolutePath,
+      relativePath: saved.relativePath,
+      timestamp: new Date().toISOString(),
+    }));
 
     generationTaskStore.completeTask(clientSessionId, taskId, {
       filename,
@@ -5505,6 +5653,18 @@ async function routeRequest(request, response) {
 
   if (request.method === "POST" && url.pathname === "/api/output/open") {
     return handleOpenOutput(response);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/download-directory/select") {
+    return handleSelectDownloadDirectory(response);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/download-directory/open") {
+    return handleOpenDownloadDirectory(response);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/download-image") {
+    return handleImageDownload(request, response);
   }
 
   if (request.method === "POST" && url.pathname === "/api/output/delete") {

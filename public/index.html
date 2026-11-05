@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Image Studio</title>
+    <link id="siteBrandFavicon" rel="icon" type="image/svg+xml" href="./assets/site-brand-default.svg" />
     <script>
       (() => {
         const themeKey = "image-studio-ui-theme-v1";
@@ -65,22 +66,26 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Sora:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260705-ui-scale-90-1" />
+    <link rel="stylesheet" href="./styles.css?v=20261008-image-storage-directory-2" />
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
         <div class="brand-cluster">
-          <div class="brand-mark" aria-hidden="true">
-            <span class="brand-mark-core"></span>
-          </div>
-          <div class="brand-copy">
-            <div class="brand-title-row">
-              <h1>aEboli</h1>
-              <span class="brand-ai-badge">AI</span>
-            </div>
-            <p>AI 图像生成工作流</p>
-          </div>
+          <button class="brand-editor-trigger" id="brandEditorOpenButton" type="button" aria-label="编辑网站 Logo 与品牌信息" title="点击编辑专属 Logo">
+            <span class="brand-mark" id="brandMark" aria-hidden="true">
+              <img class="brand-logo-image" id="brandLogoImage" alt="" />
+              <span class="brand-mark-core"></span>
+            </span>
+            <span class="brand-copy">
+              <span class="brand-title-row">
+                <span class="brand-name" id="brandName">aEboli</span>
+                <span class="brand-ai-badge">AI</span>
+              </span>
+              <span class="brand-tagline" id="brandTagline">AI 图像生成工作流</span>
+            </span>
+            <span class="brand-edit-indicator" aria-hidden="true">✦</span>
+          </button>
         </div>
 
         <nav class="primary-nav global-nav" aria-label="全局导航">
@@ -146,6 +151,7 @@
                     <span class="mega-menu-kicker">配置区</span>
                     <button class="mega-menu-action large" type="button" data-nav-action="config">配置 API</button>
                     <button class="mega-menu-action" type="button" data-nav-action="activity-log">生成日志</button>
+                    <button class="mega-menu-action" type="button" data-nav-action="brand">品牌 Logo</button>
                     <button class="mega-menu-action" id="themeNavAction" type="button" data-nav-action="theme">主题颜色</button>
                   </section>
                 </div>
@@ -190,14 +196,17 @@
                     <div>
                       <span>参考图</span>
                     </div>
-                    <small id="referenceCount">0 / 15</small>
+                    <div class="reference-summary-meta">
+                      <small id="referenceCount">0 / 15</small>
+                      <button class="inline-clear-button" id="clearReferenceButton" type="button" title="清空参考图" aria-label="清空参考图">清空</button>
+                    </div>
                   </summary>
 
                   <label class="reference-dropzone" id="referenceDropzone">
                     <input id="referenceInput" name="referenceImages" type="file" accept="image/*" multiple />
                     <div class="reference-icon" aria-hidden="true"></div>
                     <strong>拖入图片或点击上传</strong>
-                    <em>上传参考图</em>
+                    <em>上传参考图，或按 Ctrl+V 粘贴</em>
                   </label>
 
                   <div class="reference-grid hidden" id="referenceGrid"></div>
@@ -252,14 +261,23 @@
                   </label>
                 </div>
 
+                <label class="compact-field" data-prompt-mode-block>
+                  <span>产品标题（必填）</span>
+                  <textarea id="productTitleInput" rows="3" required placeholder="填写当前产品标题，用于结合标题分析核心卖点" aria-describedby="productTitleHint"></textarea>
+                  <small id="productTitleHint">提示词勾选“结合标题分析”后，每次生成使用此处的最新标题。</small>
+                </label>
+
                 <div class="field-group" data-prompt-mode-block>
                   <div class="field-heading with-action">
                     <div>
                       <span>提示词</span>
                     </div>
-                    <button class="icon-button" id="surprisePromptButton" type="button" title="提示词模板" aria-expanded="false">
-                      ✦
-                    </button>
+                    <div class="field-heading-actions">
+                      <button class="inline-clear-button" id="clearPromptButton" type="button" title="一键清空提示词" aria-label="一键清空提示词">清空</button>
+                      <button class="icon-button" id="surprisePromptButton" type="button" title="提示词模板" aria-expanded="false">
+                        ✦
+                      </button>
+                    </div>
                   </div>
                   <label class="prompt-field">
                     <textarea
@@ -377,6 +395,8 @@
 
                   <div class="preview-actions">
                     <a class="toolbar-button" id="previewDownloadButton" href="#" download>下载</a>
+                    <button class="toolbar-button strong hidden" id="previewRetryButton" type="button" title="重新生成该任务">重新生成</button>
+                    <button class="toolbar-button" id="previewApplyConfigButton" type="button" title="载入该图配置与参考图">载入配置</button>
                     <button class="toolbar-button" id="previewLightboxButton" type="button">查看</button>
                     <button class="toolbar-button danger" id="previewDeleteButton" type="button">删除</button>
                   </div>
@@ -384,6 +404,13 @@
               </div>
 
               <div class="filmstrip-row">
+                <div class="filmstrip-select-controls" role="group" aria-label="批量下载生成图">
+                  <button class="toolbar-button" id="filmstripSelectToggle" type="button" aria-pressed="false">批量选择</button>
+                  <button class="toolbar-button hidden" id="filmstripSelectAllButton" type="button">全选</button>
+                  <button class="toolbar-button hidden" id="filmstripSelectClearButton" type="button">取消选择</button>
+                  <span class="filmstrip-selection-count hidden" id="filmstripSelectionCount">已选 0</span>
+                  <button class="toolbar-button strong hidden" id="filmstripBatchDownloadButton" type="button" disabled>下载所选</button>
+                </div>
                 <div class="filmstrip" id="filmstrip"></div>
               </div>
             </section>
@@ -2186,6 +2213,13 @@
                     </button>
                   </div>
                   <button class="header-button" id="refreshGalleryButton" type="button">刷新画廊</button>
+                  <div class="gallery-select-controls" role="group" aria-label="批量下载">
+                    <button class="header-button" id="gallerySelectToggle" type="button" aria-pressed="false">批量下载</button>
+                    <button class="header-button hidden" id="gallerySelectAllButton" type="button">全选</button>
+                    <button class="header-button hidden" id="gallerySelectClearButton" type="button">取消选择</button>
+                    <span class="gallery-selection-count hidden" id="gallerySelectionCount">已选 0 张</span>
+                    <button class="header-button strong hidden" id="galleryBatchDownloadButton" type="button" disabled>下载所选</button>
+                  </div>
                 </div>
                 <div class="gallery-toolbar-meta">
                   <div class="gallery-filters" id="galleryFilters"></div>
@@ -2432,6 +2466,7 @@
               <button class="toolbar-button" id="lightboxActualSizeButton" type="button">100%</button>
             </div>
             <a class="toolbar-button" id="lightboxDownload" href="#" download>下载</a>
+            <button class="toolbar-button lightbox-record-action" id="lightboxApplyConfigButton" type="button" title="载入该图配置与参考图到 Studio">载入配置</button>
             <button class="toolbar-button lightbox-record-action hidden" id="lightboxCopyPathButton" type="button">复制路径</button>
             <button class="toolbar-button lightbox-record-action hidden" id="lightboxCopyFullPathButton" type="button">复制完整路径</button>
             <button class="toolbar-button danger" id="lightboxDelete" type="button">删除</button>
@@ -2737,6 +2772,22 @@
               </div>
             </section>
 
+            <section class="config-card config-download-card" aria-labelledby="configDownloadTitle">
+              <div class="config-card-head">
+                <h3 id="configDownloadTitle">图片保存目录</h3>
+                <p>生成完成后的自动保存、画廊读取和图片下载都会使用该文件夹；保存后立即生效。</p>
+              </div>
+              <label class="field" for="downloadDirectoryInput">
+                <span>图片保存根目录</span>
+              </label>
+              <div class="download-directory-control">
+                <input id="downloadDirectoryInput" name="downloadDirectory" type="text" placeholder="例如 D:\图片下载" autocomplete="off" spellcheck="false" />
+                <button class="inline-button" id="selectDownloadDirectoryButton" type="button">选择文件夹</button>
+                <button class="inline-button" id="openDownloadDirectoryButton" type="button">打开</button>
+              </div>
+              <small class="field-hint">生成图会按日期分类保存；手动下载遇到同名图片会自动添加序号，不会覆盖原文件。</small>
+            </section>
+
             <div class="config-action-bar">
               <p class="config-note" id="configFeedback" aria-live="polite"></p>
               <button class="header-button" id="testConnectionButton" type="button">测试连接</button>
@@ -2785,13 +2836,64 @@
         <div class="prompt-template-head">
           <div>
             <p class="drawer-eyebrow">Prompt Kit</p>
-            <h2>提示词模板</h2>
+            <h2>提示词与套图模板</h2>
           </div>
-          <button class="toolbar-button" id="closePromptTemplateButton" type="button">关闭</button>
+          <div class="prompt-template-head-actions">
+            <button class="toolbar-button strong" id="sharePromptKitButton" type="button" title="导出提示词与套图模板 TXT 文件，不包含 API 密钥和图片">导出分享 TXT</button>
+            <button class="toolbar-button" id="closePromptTemplateButton" type="button">关闭</button>
+          </div>
         </div>
 
+        <section class="prompt-kit-code-section" aria-label="提示词配置口令">
+          <div class="prompt-kit-code-copy">
+            <strong>导入分享口令</strong>
+            <span>推荐直接发送 TXT 文件，再点击“导入 TXT”；也可以粘贴完整口令。</span>
+          </div>
+          <div class="prompt-kit-code-controls">
+            <textarea id="promptKitCodeInput" rows="2" maxlength="250000" spellcheck="false" placeholder="粘贴 PROMPT-KIT.V1... 分享口令" aria-label="提示词配置分享口令"></textarea>
+            <button class="toolbar-button strong" id="importPromptKitCodeButton" type="button">导入口令</button>
+          </div>
+          <input id="promptKitFileInput" type="file" accept=".txt,text/plain" hidden>
+          <button class="toolbar-button" id="importPromptKitFileButton" type="button">导入 TXT</button>
+          <p class="config-note" id="promptKitCodeFeedback"></p>
+        </section>
+
+        <section class="prompt-set-section" aria-label="套图模板">
+          <div class="prompt-set-heading">
+            <div>
+              <h3>套图模板</h3>
+              <p>勾选下方提示词并保存，之后可一次提交整套图片。</p>
+            </div>
+            <span class="prompt-set-selection-count" id="promptSetSelectionCount">已选 0 张</span>
+          </div>
+
+          <div class="prompt-set-list" id="promptSetList"></div>
+
+          <div class="prompt-set-editor">
+            <input id="promptSetNameInput" type="text" maxlength="40" placeholder="例如：亚马逊六图套装" aria-label="套图模板名称" />
+            <div class="prompt-set-actions">
+              <button class="toolbar-button" id="selectAllPromptTemplatesButton" type="button">全选提示词</button>
+              <button class="toolbar-button" id="clearPromptTemplateSelectionButton" type="button">清空选择</button>
+              <button class="toolbar-button" id="newPromptSetButton" type="button">新建套图</button>
+              <button class="toolbar-button strong" id="savePromptSetButton" type="button">保存套图</button>
+              <button class="generate-button prompt-set-generate-button" id="generatePromptSetButton" type="button">生成所选套图</button>
+            </div>
+          </div>
+          <p class="config-note prompt-set-feedback" id="promptSetFeedback"></p>
+        </section>
+
         <div class="prompt-template-body">
-          <div class="prompt-template-list" id="promptTemplateList"></div>
+          <div class="prompt-template-list-column">
+            <div class="prompt-template-list-toolbar">
+              <strong>提示词模板</strong>
+              <div>
+                <button class="toolbar-button" id="promptTemplateBatchToggleButton" type="button">批量管理</button>
+                <button class="toolbar-button hidden" id="promptTemplateBatchSelectAllButton" type="button">全选</button>
+                <button class="toolbar-button danger hidden" id="promptTemplateBatchDeleteButton" type="button" disabled>删除已选</button>
+              </div>
+            </div>
+            <div class="prompt-template-list" id="promptTemplateList"></div>
+          </div>
 
           <form class="prompt-template-form" id="promptTemplateForm">
             <label class="compact-field">
@@ -2804,6 +2906,16 @@
               <textarea id="promptTemplateTextInput" rows="8" maxlength="3000" placeholder="写入模板提示词"></textarea>
             </label>
 
+            <label class="prompt-template-params-toggle">
+              <input id="promptTemplateAnalyzeTitleToggle" type="checkbox" />
+              <span>此提示词结合标题分析（每次生成使用当前产品标题）</span>
+            </label>
+
+            <label class="prompt-template-params-toggle">
+              <input id="promptTemplateSaveParamsToggle" type="checkbox" />
+              <span>连同当前参数一起保存（比例 / 分辨率 / 输出格式 / 思考等级）</span>
+            </label>
+
             <div class="prompt-template-actions">
               <button class="toolbar-button" id="newPromptTemplateButton" type="button">新建</button>
               <button class="toolbar-button strong" type="submit">保存</button>
@@ -2814,6 +2926,100 @@
             <p class="config-note" id="promptTemplateFeedback"></p>
           </form>
         </div>
+      </div>
+    </aside>
+
+    <aside class="site-brand-modal hidden" id="siteBrandModal" aria-hidden="true">
+      <button class="site-brand-backdrop" id="siteBrandBackdrop" type="button" aria-label="关闭品牌 Logo 编辑器"></button>
+      <div class="site-brand-dialog" role="dialog" aria-modal="true" aria-labelledby="siteBrandTitle">
+        <div class="site-brand-head">
+          <div>
+            <p class="drawer-eyebrow">Brand Studio</p>
+            <h2 id="siteBrandTitle">编辑专属 Logo</h2>
+            <p>打造自己的工作台标识，设置只保存在当前浏览器。</p>
+          </div>
+          <button class="icon-button" id="siteBrandCloseButton" type="button" aria-label="关闭品牌 Logo 编辑器">×</button>
+        </div>
+
+        <form class="site-brand-form" id="siteBrandForm">
+          <section class="site-brand-preview-card" aria-label="品牌效果预览">
+            <span class="site-brand-preview-label">实时预览</span>
+            <div class="site-brand-preview-content">
+              <span class="brand-mark site-brand-preview-mark" id="siteBrandPreviewMark" aria-hidden="true">
+                <img class="brand-logo-image" id="siteBrandPreviewImage" alt="" />
+                <span class="brand-mark-core"></span>
+              </span>
+              <span class="brand-copy">
+                <span class="brand-title-row">
+                  <span class="brand-name" id="siteBrandPreviewName">aEboli</span>
+                  <span class="brand-ai-badge">AI</span>
+                </span>
+                <span class="brand-tagline" id="siteBrandPreviewTagline">AI 图像生成工作流</span>
+              </span>
+            </div>
+          </section>
+
+          <div class="site-brand-editor-grid">
+            <section class="site-brand-upload-panel">
+              <label class="site-brand-upload-zone" id="siteBrandUploadZone">
+                <input id="siteBrandImageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" />
+                <span class="site-brand-upload-icon" aria-hidden="true">＋</span>
+                <strong>上传 Logo 图片</strong>
+                <span>PNG / JPG / WebP / GIF / SVG</span>
+                <small>建议透明背景，文件不超过 1.5 MB</small>
+              </label>
+              <p class="site-brand-storage-note">保存后会同步显示为浏览器标签页图标，并在刷新后保留。</p>
+              <div class="site-brand-file-row">
+                <span id="siteBrandFilename">当前使用默认图形标识</span>
+                <button class="toolbar-button danger" id="siteBrandRemoveImageButton" type="button" disabled>移除图片</button>
+              </div>
+            </section>
+
+            <section class="site-brand-fields">
+              <label class="compact-field">
+                <span>品牌名称</span>
+                <input id="siteBrandNameInput" type="text" maxlength="40" autocomplete="organization" placeholder="输入你的品牌名称" required />
+              </label>
+              <label class="compact-field">
+                <span>品牌副标题</span>
+                <input id="siteBrandTaglineInput" type="text" maxlength="60" placeholder="一句话描述你的工作台" required />
+              </label>
+              <div class="site-brand-field-pair">
+                <label class="compact-field">
+                  <span>图片适配</span>
+                  <select id="siteBrandFitInput">
+                    <option value="contain">完整显示</option>
+                    <option value="cover">铺满裁切</option>
+                  </select>
+                </label>
+                <label class="compact-field">
+                  <span>底板样式</span>
+                  <select id="siteBrandBackgroundInput">
+                    <option value="soft">柔光渐变</option>
+                    <option value="transparent">透明</option>
+                    <option value="dark">深色</option>
+                    <option value="light">浅色</option>
+                  </select>
+                </label>
+              </div>
+              <label class="site-brand-range-field">
+                <span>Logo 尺寸 <output id="siteBrandSizeValue">40px</output></span>
+                <input id="siteBrandSizeInput" type="range" min="32" max="64" step="1" value="40" />
+              </label>
+              <label class="site-brand-range-field">
+                <span>圆角大小 <output id="siteBrandRadiusValue">14px</output></span>
+                <input id="siteBrandRadiusInput" type="range" min="0" max="24" step="1" value="14" />
+              </label>
+            </section>
+          </div>
+
+          <div class="site-brand-actions">
+            <button class="toolbar-button" id="siteBrandResetButton" type="button">恢复默认</button>
+            <p class="site-brand-feedback" id="siteBrandFeedback" aria-live="polite"></p>
+            <button class="toolbar-button" id="siteBrandCancelButton" type="button">取消</button>
+            <button class="generate-button" id="siteBrandSaveButton" type="submit">保存品牌设置</button>
+          </div>
+        </form>
       </div>
     </aside>
 
@@ -2853,6 +3059,6 @@
       </div>
     </aside>
 
-    <script type="module" src="./app.js?v=20260705-ui-scale-90-1"></script>
+    <script type="module" src="./app.js?v=20261008-image-storage-directory-2"></script>
   </body>
 </html>

@@ -25,8 +25,8 @@ const publicConfigModelPickerPath = new URL("../public/lib/config-model-picker.m
 const publicCreationListingViewPath = new URL("../public/lib/creation-listing-view.mjs", import.meta.url);
 const generationClientPath = new URL("../lib/generation-client.mjs", import.meta.url);
 const pptAnalysisClientPath = new URL("../lib/ppt-analysis-client.mjs", import.meta.url);
-const stylesAssetVersion = "20260705-ui-scale-90-1";
-const appAssetVersion = "20260705-ui-scale-90-1";
+const stylesAssetVersion = "20261008-image-storage-directory-2";
+const appAssetVersion = "20261008-image-storage-directory-2";
 const pptModuleAssetVersion = "20260527-density-overlap-1";
 const creationQueueModuleAssetVersion = "20260530-creation-queue-role-sync-1";
 const quickBlendModuleAssetVersion = "20260608-quick-blend-time-sort-1";
@@ -36,6 +36,24 @@ test("static assets use the current cache-busting version", async () => {
 
   assert.match(html, new RegExp(`\\.\\/styles\\.css\\?v=${stylesAssetVersion}`));
   assert.match(html, new RegExp(`\\.\\/app\\.js\\?v=${appAssetVersion}`));
+});
+
+test("prompt kit supports reusable multi-prompt image sets", async () => {
+  const html = await readFile(indexPath, "utf8");
+  const styles = await readFile(stylesPath, "utf8");
+  const app = await readFile(appPath, "utf8");
+
+  assert.match(html, /id="promptSetList"/);
+  assert.match(html, /id="promptSetNameInput"/);
+  assert.match(html, /id="selectAllPromptTemplatesButton"[\s\S]*全选提示词/);
+  assert.match(html, /id="generatePromptSetButton"[\s\S]*生成所选套图/);
+  assert.match(styles, /\.prompt-template-set-checkbox\s*\{/);
+  assert.match(styles, /\.prompt-set-card\s*\{/);
+  assert.match(app, /const PROMPT_SET_STORAGE_KEY = "image-studio-prompt-sets-v1";/);
+  assert.match(app, /function startPromptSetGeneration\(promptSetId = ""\)/);
+  assert.match(app, /const jobs = templates\.map\(\(template\) => createJob\(\{/);
+  assert.match(app, /state\.jobs\.unshift\(\.\.\.jobs\);/);
+  assert.match(app, /jobs\.forEach\(recordJobQueued\);/);
 });
 
 test("creation image count keeps role checkbox defaults synchronized", async () => {
@@ -979,7 +997,7 @@ test("style transfer upload slots accept one image and align preview width to up
   );
 });
 
-test("pasted clipboard images in studio text inputs upload to the active image slot", async () => {
+test("pasted clipboard images are snapshotted and decoded before routing to the active image slot", async () => {
   const app = await readFile(appPath, "utf8");
 
   assert.match(
@@ -988,20 +1006,15 @@ test("pasted clipboard images in studio text inputs upload to the active image s
   );
   assert.match(
     app,
-    /function handleStudioImagePaste\(event\) \{[\s\S]*const imageFiles = getClipboardImageFiles\(event\.clipboardData\);[\s\S]*if \(imageFiles\.length === 0\) \{[\s\S]*return;[\s\S]*event\.preventDefault\(\);[\s\S]*if \(state\.studioMode === "style-transfer"\) \{[\s\S]*applyStyleTransferReferenceFile\("source", imageFiles\);[\s\S]*return;[\s\S]*applyReferenceFiles\(imageFiles\);/,
+    /function handleGlobalImagePaste\(event\) \{[\s\S]*const imageFiles = getClipboardImageFiles\(event\.clipboardData\);[\s\S]*const routeContext = getActiveImagePasteRouteContext\(\);[\s\S]*event\.preventDefault\(\);[\s\S]*prepareClipboardImageFiles\(imageFiles,[\s\S]*decodeImageFile: decodeClipboardImageFile,[\s\S]*routeImagePasteToActiveDropzone\(acceptedFiles, routeContext\);/,
   );
-  assert.match(app, /refs\.promptInput\.addEventListener\("paste", handleStudioImagePaste\);/);
-  assert.match(app, /refs\.styleTransferInstructionInput\.addEventListener\("paste", handleStudioImagePaste\);/);
-});
-
-test("pasted clipboard images on creation view upload to creation references", async () => {
-  const app = await readFile(appPath, "utf8");
-
   assert.match(
     app,
-    /function handleCreationReferenceImagePaste\(event\) \{[\s\S]*state\.activeView !== "creation"[\s\S]*isCreationLogoBatchBranch\(\)[\s\S]*const imageFiles = getClipboardImageFiles\(event\.clipboardData\);[\s\S]*imageFiles\.length === 0[\s\S]*return;[\s\S]*event\.preventDefault\(\);[\s\S]*applyCreationReferenceFiles\(imageFiles\);/,
+    /async function decodeClipboardImageFile\(file\) \{[\s\S]*createImageBitmap\(file\)[\s\S]*bitmap\.width[\s\S]*bitmap\.close\(\)/,
   );
-  assert.match(app, /document\.addEventListener\("paste", handleCreationReferenceImagePaste\);/);
+  assert.match(app, /document\.addEventListener\("paste", handleGlobalImagePaste\);/);
+  assert.match(app, /if \(view === "studio"\) \{[\s\S]*applyReferenceFiles\(imageFiles\);/);
+  assert.match(app, /if \(view === "creation"\) \{[\s\S]*applyCreationReferenceFiles\(imageFiles\);/);
 });
 
 test("reference thumbnails render three per row and open a local preview viewer", async () => {
@@ -3003,7 +3016,7 @@ test("task polling restarts preserved local queued jobs when remote snapshots om
 
   assert.match(
     applySnapshotsBody,
-    /const localTransientJobs = state\.jobs\.filter\(\(job\) => !snapshotIds\.has\(job\.id\) && \(job\.isRunning \|\| !job\.started\)\);/,
+    /const localTransientJobs = state\.jobs\.filter\(\(job\) => !snapshotIds\.has\(job\.id\) && \(job\.isRunning \|\| !job\.started \|\| normalizeGenerationTaskStatus\(job\.status\) === "error"\)\);/,
   );
   assert.match(applySnapshotsBody, /const hasLocalQueuedJobs = localTransientJobs\.some\(\(job\) => isQueuedGenerationJob\(job\)\);/);
   assert.match(applySnapshotsBody, /if \(hasLocalQueuedJobs\) \{\s*scheduleGenerationQueue\(\);\s*\}/);
@@ -4802,4 +4815,28 @@ test("local PPT generation integrates editable reconstruction after ordinary PPT
   assert.match(server, /editablePptxRelativePath,[\s\S]*editablePptxFilename,[\s\S]*editablePptxWarnings,[\s\S]*exportMode: normalizedExportMode/);
   assert.match(server, /writeSseEventPayload\(onEvent, "editable_reconstruction_warning"/);
   assert.match(server, /writeSseEventPayload\(onEvent, "editable_deck_saved"/);
+});
+
+test("configuration exposes a persistent image download directory and routes image saves through it", async () => {
+  const [html, styles, app, server] = await Promise.all([
+    readFile(indexPath, "utf8"),
+    readFile(stylesPath, "utf8"),
+    readFile(appPath, "utf8"),
+    readFile(serverPath, "utf8"),
+  ]);
+
+  assert.match(html, /id="downloadDirectoryInput"[\s\S]*id="selectDownloadDirectoryButton"[\s\S]*id="openDownloadDirectoryButton"/);
+  assert.match(html, /placeholder="例如 D:\\图片下载"/);
+  assert.match(html, /生成完成后的自动保存、画廊读取和图片下载都会使用该文件夹/);
+  assert.match(styles, /\.download-directory-control\s*\{/);
+  assert.match(app, /fetch\("\/api\/download-image"/);
+  assert.match(app, /state\.config\?\.downloadDirectory/);
+  assert.match(app, /document\.addEventListener\("click", handleConfiguredImageDownloadClick\)/);
+  assert.match(server, /url\.pathname === "\/api\/download-directory\/select"/);
+  assert.match(server, /url\.pathname === "\/api\/download-image"/);
+  assert.match(server, /saveDownloadFile\(\{/);
+  assert.match(server, /let outputDir = startupConfig\.downloadDirectory \|\| fallbackOutputDir/);
+  assert.match(server, /async function switchOutputDirectory\(directory\)/);
+  assert.match(server, /await switchOutputDirectory\(nextConfig\.downloadDirectory\)/);
+  assert.match(server, /effectiveOutputDirectory: outputDir/);
 });

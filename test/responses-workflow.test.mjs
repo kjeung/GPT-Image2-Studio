@@ -558,6 +558,22 @@ test("direct image generation no longer switches request shape per selected imag
   assert.equal(requests[2].body.response_format, "b64_json");
 });
 
+test("direct image generation repairs raw control characters inside upstream JSON strings", async () => {
+  const rawJson = `{"data":[{"b64_json":"prefix${String.fromCharCode(10)}suffix"}]}`;
+
+  const result = await requestDirectImageGeneration({
+    baseUrl: "https://example.test/v1",
+    apiKey: "test-key",
+    prompt: "Create a test image",
+    size: "1024x1024",
+    quality: "high",
+    imageModel: "gpt-image-2",
+    fetchImpl: async () => new Response(rawJson, { status: 200 }),
+  });
+
+  assert.equal(result.finalImageBase64, "prefix\nsuffix");
+});
+
 test("direct image generation surfaces JSON error payloads returned with HTTP 200", async () => {
   await assert.rejects(
     requestDirectImageGeneration({
@@ -867,6 +883,35 @@ test("consumeResponsesSse emits partial and final events, and tolerates terminat
   assert.deepEqual(seenEvents, ["partial_image", "final_image", "complete"]);
   assert.equal(result.finalImageBase64, "ZmluYWw=");
   assert.equal(result.partialImages.length, 1);
+});
+
+test("consumeResponsesSse joins wrapped JSON data lines without inserting control characters", async () => {
+  const resultBase64 = "A".repeat(32769262);
+  const payload = JSON.stringify({
+    type: "response.output_item.done",
+    item: {
+      type: "image_generation_call",
+      result: resultBase64,
+    },
+  });
+  const splitAt = 32769262;
+  const sse = [
+    "event: response.output_item.done",
+    `data: ${payload.slice(0, splitAt)}`,
+    `data: ${payload.slice(splitAt)}`,
+    "",
+    "",
+  ].join("\n");
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(sse));
+      controller.close();
+    },
+  });
+
+  const result = await consumeResponsesSse(stream);
+
+  assert.equal(result.finalImageBase64, resultBase64);
 });
 
 test("consumeResponsesSse extracts image_generation.completed b64_json final images", async () => {

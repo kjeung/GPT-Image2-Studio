@@ -15,7 +15,11 @@ import {
 import { isCreationSubjectReferenceRole } from "../public/lib/creation-reference-roles.mjs";
 import { reorderCreationReferenceFiles } from "../public/lib/creation-reference-drag.mjs";
 
-const APP_SHELL_LINE_BUDGET = 16600;
+// Bumped alongside the five studio enhancements (batch download, paste/clear,
+// failed-job retry, template parameters, click-to-restore config). Reusable pure
+// logic for these lives in /lib/studio-enhancements.mjs; the remaining shell code
+// is tightly coupled to refs/state and stays in app.js.
+const APP_SHELL_LINE_BUDGET = 17100;
 
 function makeFakeControlButton(className = "") {
   const element = {
