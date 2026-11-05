@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import JSZip from "jszip";
 
+// 本地采集包内嵌 Windows 原生剪贴板宿主，非 Windows 平台由 lib/product-image-native-host-build.mjs 拒绝构建。
+const windows = process.platform === "win32";
+
 const tempRoot = await mkdtemp(join(tmpdir(), "product-image-api-"));
 process.env.PORT = "0";
 process.env.HOST = "127.0.0.1";
@@ -16,7 +19,7 @@ after(async () => {
   await runtime.closeStudioServer();
   await rm(tempRoot, { recursive: true, force: true });
 });
-test("local collector package endpoint returns a valid attachment ZIP", async () => {
+test("local collector package endpoint returns a valid attachment ZIP", { skip: !windows }, async () => {
   const response = await fetch(`${runtime.studioServerUrl}/api/product-image-collector/package`);
   const bytes = await response.arrayBuffer();
   const zip = await JSZip.loadAsync(bytes);

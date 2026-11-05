@@ -529,6 +529,8 @@ cmd /c npx --no-install openspec validate --all --strict
 git diff --check
 ```
 
+On Linux the same eight gates run in one command with `npm run verify:ci`; see [Linux CI gates](./docs/linux-ci-gates.md) for the expected-skip list and why each item cannot pass off Windows.
+
 Installer changes additionally require `npm run build:installer`. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the OpenSpec workflow and dirty-worktree rules.
 
 ## Releases

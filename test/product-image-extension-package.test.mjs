@@ -5,7 +5,10 @@ import { readFile } from "node:fs/promises";
 
 import { buildProductImageCollectorArchive } from "../lib/product-image-extension-package.mjs";
 
-test("extension ZIP contains reviewable sources and the exact shared import protocol", async () => {
+// 归档内嵌 Windows 原生剪贴板宿主，非 Windows 平台由 lib/product-image-native-host-build.mjs 拒绝构建。
+const windows = process.platform === "win32";
+
+test("extension ZIP contains reviewable sources and the exact shared import protocol", { skip: !windows }, async () => {
   const archive = await buildProductImageCollectorArchive();
   const zip = await JSZip.loadAsync(archive.bytes);
   const filenames = Object.keys(zip.files).filter((name) => !zip.files[name].dir);

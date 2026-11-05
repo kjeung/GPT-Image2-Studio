@@ -20,6 +20,7 @@
     "release:patch": "node scripts/release-patch.mjs --type patch",
     "check:release": "node scripts/check-release-readiness.mjs",
     "check:release:strict": "node scripts/check-release-readiness.mjs --strict",
+    "verify:ci": "node scripts/verify-ci-gates.mjs",
     "test": "node --test --test-concurrency=1 ./test/*.test.mjs",
     "test:creation-e2e": "node --test ./test/creation-e2e-regression.test.mjs"
   },

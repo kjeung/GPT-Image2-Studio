@@ -10,6 +10,10 @@ import { buildProductImageClipboardHost } from "../lib/product-image-native-host
 
 const nativeHostDir = new URL("../extensions/product-image-collector/native-host/", import.meta.url);
 
+// 编译原生宿主依赖 Windows 的 C# 编译器与剪贴板 API，非 Windows 平台由 lib/product-image-native-host-build.mjs 拒绝构建。
+// 只读源码与安装脚本的那一例不依赖平台，保持全平台执行。
+const windows = process.platform === "win32";
+
 test("native clipboard host is purpose-bound and independently installable", async () => {
   const [source, installer, uninstaller] = await Promise.all([
     readFile(new URL("ProductImageClipboardHost.cs", nativeHostDir), "utf8"),
@@ -44,7 +48,7 @@ test("native clipboard host is purpose-bound and independently installable", asy
   assert.match(uninstaller, /Remove-Item/);
 });
 
-test("compiled native host dispatches clipboard work to STA after asynchronous preparation", async () => {
+test("compiled native host dispatches clipboard work to STA after asynchronous preparation", { skip: !windows }, async () => {
   const buildDir = await mkdtemp(join(tmpdir(), "product-image-native-host-sta-test-"));
   try {
     const executable = join(buildDir, "ProductImageClipboardHost.exe");
@@ -78,7 +82,7 @@ test("compiled native host dispatches clipboard work to STA after asynchronous p
   }
 });
 
-test("compiled native host rejects non-copy commands through the framed protocol", async () => {
+test("compiled native host rejects non-copy commands through the framed protocol", { skip: !windows }, async () => {
   const buildDir = await mkdtemp(join(tmpdir(), "product-image-native-host-test-"));
   try {
     const executable = join(buildDir, "ProductImageClipboardHost.exe");
@@ -116,4 +120,17 @@ test("compiled native host rejects non-copy commands through the framed protocol
   } finally {
     await rm(buildDir, { recursive: true, force: true });
   }
+});
+
+// 上面三例被跳过的根因就在这里：非 Windows 上构建器必须拒绝，而不是产出半成品或静默成功。
+// 这条断言在任何平台都执行，所以「跳过」不会掩盖构建器改变拒绝行为。
+test("native host build refuses to run off Windows", async () => {
+  if (windows) {
+    // Windows 上构建器本就该放行，这里没有要断言的拒绝行为。
+    return;
+  }
+  await assert.rejects(
+    buildProductImageClipboardHost({ rootDir: fileURLToPath(new URL("..", import.meta.url)) }),
+    /只能在 Windows 上构建/,
+  );
 });
