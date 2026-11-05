@@ -1,0 +1,107 @@
+# GPT-Image2-Studio (legacy branch) — Docker Compose deployment
+#
+#   cp deploy/env.example .env      # then fill in the API keys
+#   docker compose up -d --build
+#
+# This file deploys ONLY the studio. It deliberately ships no reverse proxy:
+# which one you run is your call, and the application has no opinion beyond a
+# few hard requirements (no SSE buffering, no read timeout, no request body
+# limit, TLS termination) documented in docs/docker-deployment.md.
+#
+# ⚠️  THIS BRANCH HAS NO AUTHENTICATION. The studio does not check a request
+# token, does not challenge with Basic auth, and has no plaintext-HTTP guard.
+# The ONLY access boundary is the port publish below: 127.0.0.1:${STUDIO_PORT}.
+# Anyone who can reach that port can drive the studio and spend your API
+# credits. For remote access you MUST put an authenticating reverse proxy in
+# front (TLS + its own auth — SSO, Autik, HTTP Basic, ...); the four proxy
+# requirements are in docs/docker-deployment.md. Do not publish the port to
+# 0.0.0.0 or rely on the application to keep strangers out — it cannot.
+#
+# Access:
+#   local   http://127.0.0.1:3600 — the port is published to host loopback only
+#   remote  your own authenticating, TLS-terminating proxy; see "接入自己的反代"
+#           in docs/docker-deployment.md, including the external network below.
+#
+# `.env` is read twice: by Compose for ${...} interpolation, and injected into
+# the studio container as its application configuration.
+name: gpt-image2-studio
+
+services:
+  studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gpt-image2-studio:${STUDIO_TAG:-legacy}
+    container_name: gpt-image2-studio
+    restart: unless-stopped
+    # Reaps zombies and forwards signals to `node server.mjs`, which installs no
+    # signal handlers of its own.
+    init: true
+    env_file:
+      - .env
+    # Retention limits are NOT repeated here: they travel in through env_file
+    # and their defaults live in docker/retention-gc.mjs. See the
+    # "Retention" section of deploy/env.example to change them.
+    environment:
+      PORT: "3600"
+      # This branch reads no HOST and no plaintext-HTTP acknowledgement flag —
+      # server.listen(port) binds every interface and there is no guard to
+      # acknowledge. The loopback publish below is the entire access boundary
+      # (see the warning at the top of this file).
+      # Docker already supplies a working resolver. The application's own
+      # public-DNS fallback (223.5.5.5 / 1.1.1.1) only adds a slow path and a
+      # failure mode inside a container, so keep it off.
+      IMAGE_STUDIO_DISABLE_DNS_FALLBACK: "1"
+      # A single volume backs everything. Note the gallery index is written to
+      # dirname(IMAGE_STUDIO_OUTPUT_DIR)/.local/gallery-index.json, so both
+      # values must stay under /data to remain on the volume.
+      IMAGE_STUDIO_OUTPUT_DIR: "/data/output"
+      IMAGE_STUDIO_LOCAL_DATA_DIR: "/data"
+      TZ: "${TZ:-Asia/Shanghai}"
+    ports:
+      # Host loopback only — with no application-level auth, this prefix is the
+      # only thing keeping the studio off your LAN. Drop the "127.0.0.1:" prefix
+      # only if you accept an unauthenticated studio reachable from your network.
+      - "127.0.0.1:${STUDIO_PORT:-3600}:3600"
+    volumes:
+      - studio-data:/data
+    # Attach to the reverse proxy's network when it lives in another Compose
+    # project (Traefik, nginx-proxy, ...). Create it once with:
+    #   docker network create proxy
+    # then uncomment both here and `proxy:` under networks below.
+    # networks:
+    #   - default
+    #   # - proxy
+    # No tmpfs for /app/artifacts here on purpose: nothing on Linux writes
+    # there. Add it back together with `read_only: true` — see
+    # docs/docker-deployment.md.
+    healthcheck:
+      # Quoted on purpose: the probe contains ":" and "?" characters that are
+      # safer not left to the YAML plain-scalar rules.
+      test:
+        - CMD
+        - node
+        - -e
+        - 'fetch("http://127.0.0.1:3600/").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'
+      interval: 30s
+      timeout: 5s
+      start_period: 25s
+      retries: 3
+    stop_grace_period: 15s
+    # Generation requests are long-lived but the UI traffic is ordinary HTTP,
+    # so default JSON-file logging with a cap is enough.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  studio-data:
+
+networks:
+  default:
+  # Shared bridge with your reverse proxy. External, so Compose never tries to
+  # create or delete it.
+  # proxy:
+  #   external: true

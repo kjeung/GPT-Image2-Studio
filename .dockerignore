@@ -1,0 +1,67 @@
+# Build context filter for the GPT-Image2-Studio (legacy branch) image.
+#
+# Docker matches these patterns against paths relative to the context root and
+# "*" never crosses "/", so a bare "*.md" or "test" already only matches at the
+# root — this is NOT gitignore semantics. The leading "/" below is therefore
+# explicit documentation of that intent rather than a functional necessity.
+# The real trap is a "**"-prefixed pattern: "**/*.md" would swallow
+# public/assets/**/ATTRIBUTION.md, which ships with the app.
+
+# --- VCS and editor noise -------------------------------------------------
+.git
+.gitattributes
+.github
+
+# --- Host-side dependencies and build output ------------------------------
+# Both forms are listed so the node_modules vendored into the source zip (and
+# any future one) is caught as well as a fresh install.
+node_modules
+**/node_modules
+/artifacts
+/dist
+/output
+/outputs
+/test-results
+
+# --- Secrets and local state: provider keys belong in the Compose env file,
+#     not the image. The source zip ships all three of these — .env,
+#     .env.example and .local/config.json (which holds real API keys).
+.env
+.env.*
+.local
+
+# --- Windows desktop shell, not used by server.mjs ------------------------
+/launch-studio.cmd
+/launch-studio.ps1
+/start-studio.cmd
+/stop-studio-services.cmd
+/scripts
+
+# --- Cloudflare Pages deployment (the other deployment route of this branch)
+/cloudflare-pages-worker.mjs
+/cloudflare-r2-lifecycle.json
+/wrangler.jsonc
+/wrangler.api.jsonc
+
+# --- Screenshots committed next to the server entry point -----------------
+/portrait-no-image-name.png
+/prompt-template-popover.png
+
+# --- Test, spec and documentation material ---------------------------------
+/test
+/openspec
+/docs
+/examples
+/README.md
+/README.zh-CN.md
+/CONTRIBUTING.md
+/SECURITY.md
+
+# --- The Docker deployment files themselves --------------------------------
+# NOTE: /docker is deliberately NOT excluded — the Dockerfile COPYs
+# docker/entrypoint.sh and docker/retention-gc.mjs into the image.
+/Dockerfile
+/.dockerignore
+/docker-compose.yml
+/docker-compose.*.yml
+/deploy
