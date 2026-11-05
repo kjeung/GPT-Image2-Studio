@@ -508,6 +508,20 @@ Object.assign(UI_LANGUAGE_TEXT["zh-CN"], {
   paletteMeigui: "玫瑰",
   paletteYuebai: "月白",
   paletteLiujin: "流金",
+  downloadSection: "图片保存目录",
+  downloadSectionHint: "生成完成后的自动保存、画廊读取和图片下载都会使用该文件夹；保存后立即生效。",
+  downloadDirectoryLabel: "图片保存根目录",
+  downloadDirectoryPlaceholder: "例如 D:\\图片下载",
+  downloadDirectoryHint: "生成图会按日期分类保存；手动下载遇到同名图片会自动添加序号，不会覆盖原文件。",
+  selectDownloadDirectory: "选择文件夹",
+  selectDownloadDirectoryBusy: "选择中...",
+  openDownloadDirectory: "打开",
+  downloadDirectorySelected: "已选择图片保存文件夹，请点击保存使其生效。",
+  downloadDirectorySaved: "配置已保存，生成图片和手动下载将写入新的保存目录。",
+  downloadDirectorySaveFailed: "保存图片下载路径失败。",
+  downloadDirectorySelectFailed: "打开文件夹选择器失败。",
+  downloadDirectoryOpenFailed: "打开图片下载目录失败。",
+  downloadImageFailed: "保存图片失败，请检查下载路径。",
 });
 Object.assign(UI_LANGUAGE_TEXT.en, {
   gptSection: "GPT",
@@ -582,6 +596,20 @@ Object.assign(UI_LANGUAGE_TEXT.en, {
   paletteMeigui: "Rose",
   paletteYuebai: "Moon white",
   paletteLiujin: "Flowing gold",
+  downloadSection: "Image Save Directory",
+  downloadSectionHint: "Automatic saves, gallery reads, and manual image downloads all use this folder. Changes take effect as soon as you save.",
+  downloadDirectoryLabel: "Image save root directory",
+  downloadDirectoryPlaceholder: "For example D:\\Pictures\\downloads",
+  downloadDirectoryHint: "Generated images are saved under date folders. Manual downloads add a number when a filename already exists instead of overwriting it.",
+  selectDownloadDirectory: "Choose Folder",
+  selectDownloadDirectoryBusy: "Choosing...",
+  openDownloadDirectory: "Open",
+  downloadDirectorySelected: "Folder selected. Click Save to make it take effect.",
+  downloadDirectorySaved: "Settings saved. Generated images and manual downloads now write to the new folder.",
+  downloadDirectorySaveFailed: "Failed to save the image download directory.",
+  downloadDirectorySelectFailed: "Failed to open the folder picker.",
+  downloadDirectoryOpenFailed: "Failed to open the image download directory.",
+  downloadImageFailed: "Failed to save the image. Check the download directory.",
 });
 const CONNECTION_STATUS_ENTRY_LABEL = "API、LOG";
 const CONNECTION_STATUS_EMPTY_LABEL = "待填写API、LOG";
@@ -1028,6 +1056,9 @@ const refs = {
   configForm: document.querySelector("#configForm"),
   configGenerationLogPanel: document.querySelector("#configGenerationLogPanel"),
   configStatus: document.querySelector("#configStatus"),
+  downloadDirectoryInput: document.querySelector("#downloadDirectoryInput"),
+  selectDownloadDirectoryButton: document.querySelector("#selectDownloadDirectoryButton"),
+  openDownloadDirectoryButton: document.querySelector("#openDownloadDirectoryButton"),
   generationStartDelayInput: document.querySelector("#generationStartDelayInput"),
   generationConcurrencyInput: document.querySelector("#generationConcurrencyInput"),
   generationSchedulingLockNote: document.querySelector("#generationSchedulingLockNote"),
@@ -1921,12 +1952,61 @@ function triggerBrowserImageDownload(blob, filename) {
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
+async function saveImageToConfiguredDirectory(blob, filename) {
+  const safeFilename = filename || "preview.png";
+  const formData = new FormData();
+  formData.set("image", blob, safeFilename);
+  formData.set("filename", safeFilename);
+  const response = await fetch("/api/download-image", {
+    method: "POST",
+    body: formData,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || getUiLanguageText("downloadImageFailed"));
+  }
+  return payload;
+}
 async function downloadGalleryItem(item, imageElement) {
   if (!item && !imageElement) {
     return;
   }
   const blob = await resolveDownloadImageBlob(item, imageElement);
-  triggerBrowserImageDownload(blob, item.filename || "preview.png");
+  const filename = item?.filename || "preview.png";
+  // 配置了下载目录就写到服务端；否则保持原来的浏览器下载行为。
+  if (String(state.config?.downloadDirectory || "").trim()) {
+    return saveImageToConfiguredDirectory(blob, filename);
+  }
+  triggerBrowserImageDownload(blob, filename);
+  return { ok: true, browserDownload: true, filename };
+}
+function isImageDownloadFilename(filename) {
+  return /\.(?:avif|bmp|gif|jpe?g|png|svg|tiff?|webp)$/i.test(String(filename || "").trim());
+}
+// 配置了下载目录时，页面里所有 <a download> 的图片链接都改走服务端保存，
+// 这样浏览器不会再往默认下载文件夹里丢一份副本。
+function handleConfiguredImageDownloadClick(event) {
+  if (event.defaultPrevented || !String(state.config?.downloadDirectory || "").trim()) {
+    return;
+  }
+  const link = event.target instanceof Element ? event.target.closest("a[download]") : null;
+  if (!link || !isImageDownloadFilename(link.download)) {
+    return;
+  }
+  const href = link.href;
+  if (!href || href.endsWith("#")) {
+    return;
+  }
+
+  event.preventDefault();
+  const imageElement = link.closest(".view-panel, .studio-panel, .lightbox-dialog")?.querySelector("img") || null;
+  downloadGalleryItem(
+    {
+      filename: link.download,
+      imageUrl: href,
+    },
+    imageElement,
+  ).catch((error) => showError(error instanceof Error ? error.message : String(error)));
 }
 function getDisplayId(item) {
   const raw = String(item?.id || "");
@@ -6195,6 +6275,7 @@ function appendJobConfigToFormData(formData, job) {
 }
 
 function syncConfigUi(config) {
+  if (refs.downloadDirectoryInput) refs.downloadDirectoryInput.value = config.downloadDirectory || "";
   syncEndpointInputDisplay("a", config.baseUrl || "", config.endpointPath || API_ENDPOINT_RESPONSES);
   refs.responsesModelInput.value = config.responsesModel || DEFAULT_RESPONSES_MODEL;
   const imageToolModel = normalizeImageToolModel(config.imageToolModel);
@@ -19259,6 +19340,27 @@ async function saveConfig(event) {
   const browserConfig = saveBrowserPrivateConfig(payload);
   await window.studioDesktopConfig?.saveConfig(browserConfig);
   state.config = toPublicBrowserConfig(browserConfig, state.config || {});
+  // 下载目录属于服务端状态，不走 POST /api/config：那条路由会整段列举字段写回，
+  // 只改下载目录的请求会把别的已保存字段重置。这里走它自己的保存路由。
+  // 空串是合法输入，表示清空并回退到启动时的输出目录，所以永远按输入值发送。
+  const nextDownloadDirectory = refs.downloadDirectoryInput?.value.trim() || "";
+  const downloadDirectoryChanged = nextDownloadDirectory !== String(state.config?.downloadDirectory || "");
+  if (downloadDirectoryChanged) {
+    const directoryResponse = await fetch("/api/download-directory/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ directory: nextDownloadDirectory }),
+    });
+    const directoryPayload = await directoryResponse.json().catch(() => ({}));
+    if (!directoryResponse.ok) {
+      throw new Error(directoryPayload.message || getUiLanguageText("downloadDirectorySaveFailed"));
+    }
+    state.config = {
+      ...state.config,
+      downloadDirectory: directoryPayload.directory || "",
+      effectiveOutputDirectory: directoryPayload.effectiveOutputDirectory || state.config?.effectiveOutputDirectory,
+    };
+  }
   // 输入框留空时 payload 已回退到已保存值，所以这里记的始终是本次生效的 Key；
   // 重复保存同一把只会把它移到清单最前，不会多出一条。
   rememberApiEndpointsFromConfig(browserConfig);
@@ -19268,7 +19370,45 @@ async function saveConfig(event) {
   refs.protocolApiKeyInput.value = "";
   if (refs.grokApiKeyInput) refs.grokApiKeyInput.value = "";
   configModelPicker.setFeedback(window.studioDesktopConfig ? "配置已保存到当前桌面应用。" : "配置已保存到当前浏览器。", "success");
+  // 下载目录有变化时把提示换成更具体的说法，让用户确认新目录已生效。
+  if (downloadDirectoryChanged) {
+    configModelPicker.setFeedback(getUiLanguageText("downloadDirectorySaved"), "success");
+  }
   syncConfigUi(state.config);
+}
+
+async function chooseDownloadDirectory() {
+  if (!refs.selectDownloadDirectoryButton) {
+    return;
+  }
+  refs.selectDownloadDirectoryButton.disabled = true;
+  refs.selectDownloadDirectoryButton.setAttribute("aria-busy", "true");
+  // 文案走 i18n 表，切语言后 applyUiLanguageText 会把它还原成同一个值。
+  refs.selectDownloadDirectoryButton.textContent = getUiLanguageText("selectDownloadDirectoryBusy");
+  try {
+    const response = await fetch("/api/download-directory/select", { method: "POST" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || getUiLanguageText("downloadDirectorySelectFailed"));
+    }
+    // 取消选择时保持输入框原值，只有真的选到目录才回填；持久化交给保存。
+    if (!payload.cancelled && payload.directory) {
+      refs.downloadDirectoryInput.value = payload.directory;
+      configModelPicker.setFeedback(getUiLanguageText("downloadDirectorySelected"), "success");
+    }
+  } finally {
+    refs.selectDownloadDirectoryButton.disabled = false;
+    refs.selectDownloadDirectoryButton.removeAttribute("aria-busy");
+    refs.selectDownloadDirectoryButton.textContent = getUiLanguageText("selectDownloadDirectory");
+  }
+}
+
+async function openConfiguredDownloadDirectory() {
+  const response = await fetch("/api/download-directory/open", { method: "POST" });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || getUiLanguageText("downloadDirectoryOpenFailed"));
+  }
 }
 
 async function openOutputDirectory() {
@@ -20520,6 +20660,14 @@ function bindEvents() {
   refs.openOutputButton.addEventListener("click", () => {
     openOutputDirectory().catch((error) => showError(error.message));
   });
+  refs.selectDownloadDirectoryButton?.addEventListener("click", () => {
+    chooseDownloadDirectory().catch((error) => showError(error instanceof Error ? error.message : String(error)));
+  });
+  refs.openDownloadDirectoryButton?.addEventListener("click", () => {
+    openConfiguredDownloadDirectory().catch((error) => showError(error instanceof Error ? error.message : String(error)));
+  });
+  // 页面里其他 <a download> 图片链接也要跟随下载目录设置。
+  document.addEventListener("click", handleConfiguredImageDownloadClick);
   refs.configForm.addEventListener("submit", (event) => {
     saveConfig(event).catch((error) => showError(error.message));
   });

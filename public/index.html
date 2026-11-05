@@ -3650,6 +3650,22 @@
               </label>
             </section>
 
+            <section class="config-card config-download-card" aria-labelledby="configDownloadTitle">
+              <div class="config-card-head">
+                <h3 id="configDownloadTitle" data-ui-i18n="downloadSection">图片保存目录</h3>
+                <p data-ui-i18n="downloadSectionHint">生成完成后的自动保存、画廊读取和图片下载都会使用该文件夹；保存后立即生效。</p>
+              </div>
+              <label class="field" for="downloadDirectoryInput">
+                <span data-ui-i18n="downloadDirectoryLabel">图片保存根目录</span>
+              </label>
+              <div class="download-directory-control">
+                <input id="downloadDirectoryInput" name="downloadDirectory" type="text" placeholder="例如 D:\图片下载" data-ui-i18n-placeholder="downloadDirectoryPlaceholder" autocomplete="off" spellcheck="false" />
+                <button class="inline-button" id="selectDownloadDirectoryButton" type="button" data-ui-i18n="selectDownloadDirectory">选择文件夹</button>
+                <button class="inline-button" id="openDownloadDirectoryButton" type="button" data-ui-i18n="openDownloadDirectory">打开</button>
+              </div>
+              <small class="field-hint" data-ui-i18n="downloadDirectoryHint">生成图会按日期分类保存；手动下载遇到同名图片会自动添加序号，不会覆盖原文件。</small>
+            </section>
+
             <div class="config-action-bar">
               <p class="config-note" id="configFeedback" aria-live="polite"></p>
               <button class="header-button" id="testConnectionButton" type="button" data-ui-i18n="testConnection">测试连接</button>

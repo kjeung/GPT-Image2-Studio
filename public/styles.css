@@ -14219,6 +14219,41 @@ html:is([data-ui-layout="stacked"], [data-ui-layout="tablet"], [data-ui-layout="
   cursor: not-allowed;
 }
 
+.config-download-card {
+  display: grid;
+  gap: 10px;
+}
+
+.download-directory-control {
+  display: grid;
+  /* minmax(0, 1fr) 让输入框可以收缩，窄屏时两个按钮不会被挤出卡片。 */
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.download-directory-control input {
+  min-width: 0;
+  min-height: 36px;
+  border-radius: 8px;
+}
+
+.download-directory-control .inline-button {
+  min-height: 36px;
+  white-space: nowrap;
+}
+
+/* 窄屏放不下「输入框 + 两个按钮」一行：输入框独占一行，两个按钮等分下一行。 */
+@media (max-width: 599px) {
+  .download-directory-control {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .download-directory-control input {
+    grid-column: 1 / -1;
+  }
+}
+
 /* The scheduling explanations are long, so they hover off the title instead of
    sitting permanently under each field. */
 .scheduling-hint-anchor {

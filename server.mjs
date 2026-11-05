@@ -8,7 +8,7 @@ import dns from "node:dns";
 import { createServer } from "node:http";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, stat } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { Readable } from "node:stream";
@@ -157,6 +157,7 @@ import {
 } from "./lib/ppt-completion.mjs";
 import { normalizePptMotionOptions } from "./lib/ppt-motion-presets.mjs";
 import { migrateOutputDirectoryMonths } from "./lib/output-directory-migration.mjs";
+import { ensureDownloadDirectory, saveDownloadFile } from "./lib/download-directory.mjs";
 import {
   buildCreationGenerationReferenceImageLabels,
   buildCreationItemReferenceImages,
@@ -237,7 +238,7 @@ const publicIconAliases = new Map([
   ["/apple-touch-icon.png", "icon.png"],
   ["/apple-touch-icon-precomposed.png", "icon.png"],
 ]);
-const outputDir =
+const fallbackOutputDir =
   process.env.IMAGE_STUDIO_OUTPUT_DIR ||
   (process.env.VERCEL ? join(tmpdir(), "gpt-image2-studio-output") : join(homedir(), "Pictures"));
 const localDataRootDir =
@@ -246,10 +247,38 @@ const localDataRootDir =
 const configStore = createConfigStore({ rootDir: localDataRootDir, env: process.env });
 const promptAgentStore = createPromptAgentStore({ rootDir: localDataRootDir });
 const generationTaskStore = createGenerationTaskStore();
-const pptDeckStore = createPptDeckStore({ outputDir, publicBasePath: "/output" });
-const creationSetStore = createCreationSetStore({ outputDir, publicBasePath: "/output" });
-const portraitSetStore = createPortraitSetStore({ outputDir, publicBasePath: "/output" });
-const articleIllustrationSetStore = createArticleIllustrationSetStore({ outputDir, publicBasePath: "/output" });
+// 输出根目录可以被「下载目录」设置改写（POST /api/download-directory/save），所以它
+// 既是 let，且四个按 outputDir 构造的 store 必须能重新绑定。上游把 outputDir 钉成
+// const 并在模块顶层一次性构造 store；直接换成 let 而不重建 store，切换目录后
+// 套图/PPT/写真/文章插图仍会写进旧目录，是静默的数据分裂。
+let outputDir = "";
+let pptDeckStore;
+let creationSetStore;
+let portraitSetStore;
+let articleIllustrationSetStore;
+
+function bindOutputStores() {
+  pptDeckStore = createPptDeckStore({ outputDir, publicBasePath: "/output" });
+  creationSetStore = createCreationSetStore({ outputDir, publicBasePath: "/output" });
+  portraitSetStore = createPortraitSetStore({ outputDir, publicBasePath: "/output" });
+  articleIllustrationSetStore = createArticleIllustrationSetStore({ outputDir, publicBasePath: "/output" });
+}
+
+// 切换输出根目录：解析成绝对路径、落盘目录、跑一次月份归档迁移，再重建 store。
+// 迁移是幂等的，所以对同一个目录重复调用不会搬动已有文件。
+async function switchOutputDirectory(directory) {
+  const nextOutputDir = directory || fallbackOutputDir;
+  await mkdir(nextOutputDir, { recursive: true });
+  await migrateOutputDirectoryMonths({ outputDir: nextOutputDir });
+  outputDir = nextOutputDir;
+  bindOutputStores();
+  return outputDir;
+}
+
+// 启动时以「配置里的下载目录」为准，没有配置就退回环境变量/默认目录。
+outputDir = (await configStore.readPrivateConfig()).downloadDirectory || fallbackOutputDir;
+bindOutputStores();
+
 // Temu 上品工作台的 /api/temu/* 处理器。协作者全部注入，因此该模块不认识 server.mjs。
 // resolveSafeFile / serveFile / readJsonBody 是函数声明，会提升，故此处可先引用。
 // isServerlessRuntime 必须传函数形式：它是 listen 之后才赋值的 let，传布尔会永久冻结为 false。
@@ -260,7 +289,8 @@ const articleIllustrationSetStore = createArticleIllustrationSetStore({ outputDi
 // 该切片变成空串，使多条断言以 actual:'' 的形式失败。
 const temuWorkbenchRoutes = createTemuWorkbenchRoutes({
   listManifests: () => creationSetStore.listManifests(),
-  outputDir,
+  // 必须传函数：outputDir 会被 switchOutputDirectory 改写，传字符串会冻结成启动值。
+  outputDir: () => outputDir,
   resolveSafeFile,
   serveFile,
   readJsonBody,
@@ -1035,6 +1065,48 @@ function openDirectory(targetDir) {
   child.unref();
 }
 
+// 原生文件夹选择器。只有 Windows 有可靠的免依赖实现（PowerShell 的
+// FolderBrowserDialog）；其他平台明确报错让用户直接填绝对路径，而不是
+// 假装打开了一个选择器。上游没有这个能力。
+function selectDownloadDirectory(initialDirectory = "") {
+  if (process.platform !== "win32") {
+    throw new Error("当前平台暂不支持文件夹选择器，请直接填写完整路径。");
+  }
+
+  const script = [
+    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()",
+    "Add-Type -AssemblyName System.Windows.Forms",
+    "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
+    "$dialog.Description = '选择图片下载目录'",
+    "$dialog.ShowNewFolderButton = $true",
+    "if ($env:IMAGE_STUDIO_FOLDER_PICKER_INITIAL) { $dialog.SelectedPath = $env:IMAGE_STUDIO_FOLDER_PICKER_INITIAL }",
+    "$result = $dialog.ShowDialog()",
+    "if ($result -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Write($dialog.SelectedPath) }",
+  ].join("; ");
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-STA", "-Command", script],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          IMAGE_STUDIO_FOLDER_PICKER_INITIAL: initialDirectory,
+        },
+        windowsHide: false,
+      },
+      (error, stdout) => {
+        if (error) {
+          rejectPromise(new Error(`打开文件夹选择器失败：${error.message}`));
+          return;
+        }
+        resolvePromise(String(stdout || "").trim());
+      },
+    );
+  });
+}
+
 function getClientSessionId(request, formData) {
   const headerValue = request.headers["x-client-session-id"];
   const formValue = formData.get("clientSessionId");
@@ -1327,9 +1399,101 @@ function resolveGenerationSizeForRoute(ratioOption, requestedSizeInput, imageRou
 async function handleConfigGet(_request, response) {
   sendJson(response, 200, {
     ...(await configStore.readPublicConfig()),
+    effectiveOutputDirectory: outputDir,
     aspectRatios: getAspectRatioOptions(),
     requestIp: await getOutboundRequestIp(),
   });
+}
+
+// 下载目录的保存走自己的路由，不并入 POST /api/config。
+//
+// 原因：上游 handleConfigPost 会把 27 个配置字段逐一列举后整段写回，没在 payload
+// 里的字段传成 undefined；saveConfig 的 mergeConfig 会用 DEFAULT_CONFIG 回填，
+// 于是「只改下载目录」的请求会把服务端已保存的 baseUrl 悄悄重置成默认值。
+// 实测：只传 {downloadDirectory} 调 saveConfig 时其余字段保留完好，所以这里
+// 单独保存一个字段是安全的；走 /api/config 则会把别的字段一起冲掉。
+async function handleDownloadDirectorySave(request, response) {
+  if (isServerlessRuntime) {
+    return sendJson(response, 403, { message: "云端运行时不支持自定义下载目录。" });
+  }
+  const payload = await readJsonBody(request);
+  // ensureDownloadDirectory 负责拒绝相对路径、把目录建出来、并确认它是文件夹。
+  // 这些是用户的输入错误（400），不是服务端故障：不接住会让它们一路冒到顶层
+  // 变成 500，前端就只能显示「服务器错误」而看不到「必须填绝对路径」。
+  let directory;
+  try {
+    directory = await ensureDownloadDirectory(payload.directory);
+  } catch (error) {
+    return sendJson(response, 400, { message: error instanceof Error ? error.message : String(error) });
+  }
+  await configStore.saveConfig({ downloadDirectory: directory });
+  await switchOutputDirectory(directory);
+  return sendJson(response, 200, {
+    ok: true,
+    directory,
+    effectiveOutputDirectory: outputDir,
+  });
+}
+
+async function handleSelectDownloadDirectory(response) {
+  if (isServerlessRuntime) {
+    return sendJson(response, 403, { message: "云端运行时不支持文件夹选择器。" });
+  }
+  const config = await configStore.readPrivateConfig();
+  let directory;
+  try {
+    directory = await selectDownloadDirectory(config.downloadDirectory || "");
+  } catch (error) {
+    return sendJson(response, 400, { message: error instanceof Error ? error.message : String(error) });
+  }
+  return sendJson(response, 200, {
+    ok: true,
+    cancelled: !directory,
+    directory,
+  });
+}
+
+async function handleOpenDownloadDirectory(response) {
+  const config = await configStore.readPrivateConfig();
+  if (!config.downloadDirectory) {
+    return sendJson(response, 400, { message: "请先设置并保存图片下载目录。" });
+  }
+  let directory;
+  try {
+    directory = await ensureDownloadDirectory(config.downloadDirectory);
+  } catch (error) {
+    return sendJson(response, 400, { message: error instanceof Error ? error.message : String(error) });
+  }
+  openDirectory(directory);
+  return sendJson(response, 200, { ok: true, directory });
+}
+
+// 把一张图写进已配置的下载目录。大小/类型/命名去重全部由 saveDownloadFile 负责。
+async function handleImageDownload(request, response) {
+  const config = await configStore.readPrivateConfig();
+  if (!config.downloadDirectory) {
+    return sendJson(response, 409, { message: "尚未配置图片下载目录。" });
+  }
+
+  const formData = await readFormDataBody(request);
+  const image = formData.get("image");
+  if (!image || typeof image.arrayBuffer !== "function") {
+    return sendJson(response, 400, { message: "没有收到可保存的图片。" });
+  }
+  if (image.type && !String(image.type).startsWith("image/")) {
+    return sendJson(response, 415, { message: "下载接口仅支持图片文件。" });
+  }
+  if (image.size > 100 * 1024 * 1024) {
+    return sendJson(response, 413, { message: "单张图片不能超过 100 MB。" });
+  }
+
+  const requestedFilename = String(formData.get("filename") || image.name || "image.png").trim();
+  const saved = await saveDownloadFile({
+    directory: config.downloadDirectory,
+    filename: requestedFilename,
+    data: new Uint8Array(await image.arrayBuffer()),
+  });
+  return sendJson(response, 200, { ok: true, ...saved });
 }
 
 async function handleConfigPost(request, response) {
@@ -7575,6 +7739,22 @@ async function routeRequest(request, response) {
 
   if (request.method === "POST" && url.pathname === "/api/output/open") {
     return handleOpenOutput(response);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/download-directory/save") {
+    return handleDownloadDirectorySave(request, response);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/download-directory/select") {
+    return handleSelectDownloadDirectory(response);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/download-directory/open") {
+    return handleOpenDownloadDirectory(response);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/download-image") {
+    return handleImageDownload(request, response);
   }
 
   if (request.method === "POST" && url.pathname === "/api/output/delete") {
