@@ -23113,3 +23113,399 @@ html[data-theme="light"] .settings-panel,
 .creation-marketing-live summary { cursor: pointer; font-weight: 600; }
 .creation-marketing-duplicate { color: var(--warning, #f0b65b); }
 @media (max-width: 760px) { .creation-marketing-progress-panel, #creationRecordDetail.creation-analyst-floating { padding: 16px; font-size: 14px; } .text-model-live-preview { right: 12px; width: calc(100vw - 24px); } }
+
+/* ===========================================================================
+   站点品牌（site branding）移植自 fork v0.2.0，只补上游没有的部分：
+   品牌标记的圆角/自定义 Logo/底板覆盖，以及「编辑专属 Logo」弹窗。
+   上游既有规则（.brand-mark 基础外观、::before/::after/.brand-mark-core、
+   .brand-copy h1/p、.brand-ai-badge）保持原样，这里只做覆盖与新增。
+   颜色一律走调色板 token；上游那份硬编码的青蓝高亮不搬过来，全部改走 --accent 系。
+   =========================================================================== */
+
+/* --- 品牌标记：圆角、自定义 Logo、底板 ----------------------------------- */
+
+/* 基础规则把圆角写死 14px，这里改由 JS 写入的 --brand-mark-radius 接管。 */
+.brand-mark {
+  border-radius: var(--brand-mark-radius, 14px);
+}
+
+/* 移动端既有规则把圆角写死 12px；保留 12px 作默认，但仍让滑杆生效。 */
+html[data-ui-layout="mobile"] .brand-mark {
+  border-radius: var(--brand-mark-radius, 12px);
+}
+
+/* 自定义 Logo 以 inset:0 覆盖整个标记，叠在 ::before/::after 之上。 */
+.brand-logo-image {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  display: none;
+  object-fit: var(--brand-logo-fit, contain);
+}
+
+.brand-mark.has-custom-logo .brand-logo-image {
+  display: block;
+}
+
+/* fork 的 .brand-mark 带 overflow:hidden，自定义 Logo 会被裁到圆角内；
+   上游那份没有这条，不补的话图片会溢出到标记方框外（实测可见）。 */
+.brand-mark.has-custom-logo {
+  overflow: hidden;
+}
+
+.brand-mark.has-custom-logo::before,
+.brand-mark.has-custom-logo::after,
+.brand-mark.has-custom-logo .brand-mark-core {
+  display: none;
+}
+
+/* 底板只在用户显式选择时覆盖；默认 soft 仍用基础规则的渐变，不新增规则。 */
+.brand-mark[data-brand-background="transparent"] {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.brand-mark[data-brand-background="dark"] {
+  border-color: color-mix(in srgb, #ffffff 14%, transparent);
+  background: #111827;
+}
+
+/* 浅底在浅色主题里会与纸面同色，边框改用近黑混合保证边界仍可读。
+   浅底上的白色/近白 Logo 会与底板同色（实测不可见），故补一圈柔和外描边兜底：
+   只对自定义 Logo 生效，不影响默认图形标识的三块面板。 */
+.brand-mark[data-brand-background="light"] {
+  border-color: color-mix(in srgb, #000000 14%, transparent);
+  background: #ffffff;
+}
+
+.brand-mark[data-brand-background="light"].has-custom-logo {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, #000000 10%, transparent),
+    0 6px 18px color-mix(in srgb, #000000 14%, transparent);
+}
+
+.brand-mark[data-brand-background="dark"].has-custom-logo {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, #ffffff 12%, transparent),
+    0 6px 18px color-mix(in srgb, #000000 32%, transparent);
+}
+
+/* --- 品牌文案：弹窗预览用 span，不复用 .brand-copy h1/p ------------------ */
+
+.brand-copy {
+  display: block;
+  min-width: 0;
+}
+
+.brand-name {
+  display: block;
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--type-title-size);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.brand-tagline {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: var(--type-subtitle-size);
+  line-height: 1.25;
+}
+
+/* --- 品牌编辑器弹窗 ------------------------------------------------------ */
+
+/* z-index 取 100：高过 .prompt-agent-image-viewer(95)，低于 .global-action-toast(120)。 */
+.site-brand-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.site-brand-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: var(--overlay-strong-scrim);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.site-brand-dialog {
+  position: relative;
+  width: min(820px, calc(100vw - 28px));
+  max-height: min(760px, calc(100svh - 28px));
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid var(--overlay-border);
+  border-radius: 22px;
+  background: var(--overlay-surface-bg);
+  box-shadow: var(--overlay-shadow);
+}
+
+.site-brand-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.site-brand-head h2,
+.site-brand-head p {
+  margin: 0;
+}
+
+.site-brand-head h2 {
+  font-family: var(--font-ui);
+  font-size: 1.375rem;
+  letter-spacing: 0;
+}
+
+.site-brand-head > div > p:last-child {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.site-brand-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.site-brand-preview-card {
+  position: relative;
+  display: grid;
+  min-height: 124px;
+  place-items: center;
+  overflow: hidden;
+  padding: 26px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--success) 12%, transparent), transparent 35%),
+    radial-gradient(circle at 82% 100%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 38%),
+    var(--panel-soft);
+}
+
+.site-brand-preview-label {
+  position: absolute;
+  top: 11px;
+  left: 13px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.site-brand-preview-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* 预览里的标记必须跟随滑杆；移动端把 .brand-mark 写死 34px，用 id 提权还原。 */
+#siteBrandPreviewMark {
+  width: var(--brand-mark-size, 40px);
+  height: var(--brand-mark-size, 40px);
+}
+
+.site-brand-preview-content .brand-name {
+  font-size: 1.25rem;
+}
+
+.site-brand-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.85fr) minmax(300px, 1.15fr);
+  gap: 16px;
+}
+
+.site-brand-upload-panel,
+.site-brand-fields {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel-soft);
+}
+
+.site-brand-upload-zone {
+  position: relative;
+  display: grid;
+  min-height: 190px;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  padding: 18px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 14px;
+  color: var(--muted);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.site-brand-upload-zone:hover,
+.site-brand-upload-zone.dragover {
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.site-brand-upload-zone input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.site-brand-upload-zone strong {
+  color: var(--text);
+}
+
+.site-brand-upload-zone small {
+  font-size: 11px;
+}
+
+.site-brand-upload-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  margin-bottom: 4px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent-ink, var(--text));
+  font-size: 25px;
+}
+
+.site-brand-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.site-brand-storage-note {
+  margin: -2px 2px 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.site-brand-file-row > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-brand-field-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.site-brand-range-field {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.site-brand-range-field > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.site-brand-range-field output {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.site-brand-range-field input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.site-brand-actions {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.site-brand-feedback {
+  min-width: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.site-brand-feedback[data-kind="success"] {
+  color: var(--success);
+}
+
+.site-brand-feedback[data-kind="error"] {
+  color: var(--danger);
+}
+
+/* 弹窗打开时锁住整页滚动，避免背景随滚轮一起动。 */
+body.site-brand-modal-open {
+  overflow: hidden;
+}
+
+/* --- 品牌编辑器：移动端与平板 -------------------------------------------- */
+
+html[data-ui-layout="mobile"] .site-brand-modal,
+html[data-ui-layout="tablet"] .site-brand-modal {
+  padding: 10px;
+}
+
+html[data-ui-layout="mobile"] .site-brand-dialog {
+  width: calc(100vw - 20px);
+  max-height: calc(100svh - 20px);
+  padding: 16px;
+  border-radius: 18px;
+}
+
+html[data-ui-layout="mobile"] .site-brand-editor-grid {
+  grid-template-columns: 1fr;
+}
+
+html[data-ui-layout="mobile"] .site-brand-upload-zone {
+  min-height: 150px;
+}
+
+html[data-ui-layout="mobile"] .site-brand-field-pair {
+  grid-template-columns: 1fr;
+}
+
+html[data-ui-layout="mobile"] .site-brand-actions {
+  grid-template-columns: 1fr 1fr;
+}
+
+html[data-ui-layout="mobile"] .site-brand-feedback {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+html[data-ui-layout="mobile"] .site-brand-actions .generate-button {
+  grid-column: 1 / -1;
+}

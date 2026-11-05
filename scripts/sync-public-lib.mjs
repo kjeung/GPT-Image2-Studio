@@ -119,6 +119,7 @@ export const PUBLIC_LIB_SYNC_TARGETS = [
   "ppt-record-links.mjs",
   "reference-analysis-language.mjs",
   "reasoning-effort.mjs",
+  "site-branding.mjs",
   "sse-writer.mjs",
   "sse-terminal-client.mjs",
   "studio-density.mjs",

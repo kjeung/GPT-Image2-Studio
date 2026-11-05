@@ -47,6 +47,7 @@ import { getCreationMarketingProgressForView, isCreationMarketingProgressActive,
 import { createCreationMarketingProgressView } from "/lib/creation-marketing-progress-view.mjs";
 import { getStudioDensitySettings, getStudioLayoutMode, ALL_VARIABLE_NAMES } from "/lib/studio-density.mjs?v=20260713-cross-device-1";
 import { buildStyleTransferPresetComparisonItem } from "/lib/style-transfer-preset-lightbox.mjs";
+import { createSiteBrandingController } from "/lib/site-branding.mjs?v=20261106-site-branding-1";
 import { buildCreationRecordLightboxItem, normalizeCreationGenerationSnapshotForView } from "/lib/creation-record-lightbox.mjs";
 import { buildCreationRecordDeleteConfirmation, getCreationRecordDeleteTargets, normalizeCreationRecordDeleteSetIds, resolveCreationRecordSelectionAfterDelete } from "/lib/creation-record-delete.mjs?v=20260722-creation-record-delete-flow-1";
 import { createCreationTemuExportController } from "/lib/creation-temu-export-ui.mjs";
@@ -522,6 +523,45 @@ Object.assign(UI_LANGUAGE_TEXT["zh-CN"], {
   downloadDirectorySelectFailed: "打开文件夹选择器失败。",
   downloadDirectoryOpenFailed: "打开图片下载目录失败。",
   downloadImageFailed: "保存图片失败，请检查下载路径。",
+  brandLogo: "品牌 Logo",
+  siteBrandTitle: "编辑专属 Logo",
+  siteBrandHint: "打造自己的工作台标识，设置只保存在当前浏览器。",
+  siteBrandCloseLabel: "关闭品牌 Logo 编辑器",
+  siteBrandPreviewLabel: "实时预览",
+  siteBrandUploadTitle: "上传 Logo 图片",
+  siteBrandUploadFormats: "PNG / JPG / WebP / GIF / SVG",
+  siteBrandUploadHint: "建议透明背景，文件不超过 1.5 MB",
+  siteBrandStorageNote: "保存后会同步显示为浏览器标签页图标，并在刷新后保留。",
+  siteBrandDefaultMark: "当前使用默认图形标识",
+  siteBrandRemoveImage: "移除图片",
+  siteBrandNameLabel: "品牌名称",
+  siteBrandNamePlaceholder: "输入你的品牌名称",
+  siteBrandTaglineLabel: "品牌副标题",
+  siteBrandTaglinePlaceholder: "一句话描述你的工作台",
+  siteBrandFitLabel: "图片适配",
+  siteBrandFitContain: "完整显示",
+  siteBrandFitCover: "铺满裁切",
+  siteBrandBackgroundLabel: "底板样式",
+  siteBrandBackgroundSoft: "柔光渐变",
+  siteBrandBackgroundTransparent: "透明",
+  siteBrandBackgroundDark: "深色",
+  siteBrandBackgroundLight: "浅色",
+  siteBrandSizeLabel: "Logo 尺寸",
+  siteBrandRadiusLabel: "圆角大小",
+  siteBrandReset: "恢复默认",
+  siteBrandCancel: "取消",
+  siteBrandSave: "保存品牌设置",
+  siteBrandSaving: "保存中…",
+  siteBrandSavingHint: "正在保存品牌设置…",
+  siteBrandSaveFailed: "Logo 保存失败，请检查浏览器是否允许网站存储数据后重试。",
+  siteBrandLogoLoaded: "Logo 图片已载入，点击“保存品牌设置”后将同步到浏览器标签页。",
+  siteBrandResetDone: "已恢复默认预览，保存后生效。",
+  siteBrandImageRemoved: "已移除 Logo 图片，保存后生效。",
+  siteBrandErrorMissing: "请选择 Logo 图片。",
+  siteBrandErrorType: "Logo 支持 PNG、JPG、WebP、GIF 或 SVG 格式。",
+  siteBrandErrorTooLarge: "Logo 图片不能超过 1.5 MB，请压缩后重试。",
+  siteBrandErrorRead: "Logo 图片读取失败，请重新选择。",
+  siteBrandErrorUnsupported: "当前浏览器无法读取 Logo 图片。",
 });
 Object.assign(UI_LANGUAGE_TEXT.en, {
   gptSection: "GPT",
@@ -610,6 +650,45 @@ Object.assign(UI_LANGUAGE_TEXT.en, {
   downloadDirectorySelectFailed: "Failed to open the folder picker.",
   downloadDirectoryOpenFailed: "Failed to open the image download directory.",
   downloadImageFailed: "Failed to save the image. Check the download directory.",
+  brandLogo: "Brand logo",
+  siteBrandTitle: "Edit your own logo",
+  siteBrandHint: "Build your own workbench identity. The settings are saved in this browser only.",
+  siteBrandCloseLabel: "Close the brand logo editor",
+  siteBrandPreviewLabel: "Live preview",
+  siteBrandUploadTitle: "Upload a logo image",
+  siteBrandUploadFormats: "PNG / JPG / WebP / GIF / SVG",
+  siteBrandUploadHint: "A transparent background works best. Files up to 1.5 MB.",
+  siteBrandStorageNote: "After saving it becomes the browser tab icon and survives a reload.",
+  siteBrandDefaultMark: "Using the default mark",
+  siteBrandRemoveImage: "Remove image",
+  siteBrandNameLabel: "Brand name",
+  siteBrandNamePlaceholder: "Enter your brand name",
+  siteBrandTaglineLabel: "Brand subtitle",
+  siteBrandTaglinePlaceholder: "Describe your workbench in one line",
+  siteBrandFitLabel: "Image fit",
+  siteBrandFitContain: "Show all",
+  siteBrandFitCover: "Fill and crop",
+  siteBrandBackgroundLabel: "Backplate",
+  siteBrandBackgroundSoft: "Soft gradient",
+  siteBrandBackgroundTransparent: "Transparent",
+  siteBrandBackgroundDark: "Dark",
+  siteBrandBackgroundLight: "Light",
+  siteBrandSizeLabel: "Logo size",
+  siteBrandRadiusLabel: "Corner radius",
+  siteBrandReset: "Restore defaults",
+  siteBrandCancel: "Cancel",
+  siteBrandSave: "Save brand settings",
+  siteBrandSaving: "Saving...",
+  siteBrandSavingHint: "Saving brand settings...",
+  siteBrandSaveFailed: "Could not save the logo. Check whether this site is allowed to store data, then try again.",
+  siteBrandLogoLoaded: "Logo loaded. It becomes the browser tab icon after you save.",
+  siteBrandResetDone: "Default preview restored. Save to apply.",
+  siteBrandImageRemoved: "Logo image removed. Save to apply.",
+  siteBrandErrorMissing: "Choose a logo image.",
+  siteBrandErrorType: "The logo must be a PNG, JPG, WebP, GIF or SVG image.",
+  siteBrandErrorTooLarge: "The logo must be 1.5 MB or smaller. Compress it and try again.",
+  siteBrandErrorRead: "Could not read the logo image. Choose it again.",
+  siteBrandErrorUnsupported: "This browser cannot read a logo image.",
 });
 const CONNECTION_STATUS_ENTRY_LABEL = "API、LOG";
 const CONNECTION_STATUS_EMPTY_LABEL = "待填写API、LOG";
@@ -1285,6 +1364,30 @@ const refs = {
   creationReasoningEffortInput: document.querySelector("#creationReasoningEffortInput"),
   creationTargetLanguageInput: document.querySelector("#creationTargetLanguageInput"),
   errorBanner: document.querySelector("#errorBanner"),
+  siteBrandBackdrop: document.querySelector("#siteBrandBackdrop"),
+  siteBrandBackgroundInput: document.querySelector("#siteBrandBackgroundInput"),
+  siteBrandCancelButton: document.querySelector("#siteBrandCancelButton"),
+  siteBrandCloseButton: document.querySelector("#siteBrandCloseButton"),
+  siteBrandFeedback: document.querySelector("#siteBrandFeedback"),
+  siteBrandFilename: document.querySelector("#siteBrandFilename"),
+  siteBrandFitInput: document.querySelector("#siteBrandFitInput"),
+  siteBrandForm: document.querySelector("#siteBrandForm"),
+  siteBrandImageInput: document.querySelector("#siteBrandImageInput"),
+  siteBrandModal: document.querySelector("#siteBrandModal"),
+  siteBrandNameInput: document.querySelector("#siteBrandNameInput"),
+  siteBrandPreviewImage: document.querySelector("#siteBrandPreviewImage"),
+  siteBrandPreviewMark: document.querySelector("#siteBrandPreviewMark"),
+  siteBrandPreviewName: document.querySelector("#siteBrandPreviewName"),
+  siteBrandPreviewTagline: document.querySelector("#siteBrandPreviewTagline"),
+  siteBrandRadiusInput: document.querySelector("#siteBrandRadiusInput"),
+  siteBrandRadiusValue: document.querySelector("#siteBrandRadiusValue"),
+  siteBrandRemoveImageButton: document.querySelector("#siteBrandRemoveImageButton"),
+  siteBrandResetButton: document.querySelector("#siteBrandResetButton"),
+  siteBrandSaveButton: document.querySelector("#siteBrandSaveButton"),
+  siteBrandSizeInput: document.querySelector("#siteBrandSizeInput"),
+  siteBrandSizeValue: document.querySelector("#siteBrandSizeValue"),
+  siteBrandTaglineInput: document.querySelector("#siteBrandTaglineInput"),
+  siteBrandUploadZone: document.querySelector("#siteBrandUploadZone"),
   filmstrip: document.querySelector("#filmstrip"),
   focusGalleryButton: document.querySelector("#focusGalleryButton"),
   galleryActionFeedback: document.querySelector("#galleryActionFeedback"),
@@ -1605,6 +1708,14 @@ const lightboxViewerController = createLightboxImageViewer({ refs, state });
 const assetWorkspaceController = createAssetWorkspaceController({ refs, state });
 const creationCardIdleRippleController = createCreationCardIdleRippleController();
 const disabledShakeController = createDisabledShakeController();
+/* 站点品牌：标题 / favicon 自定义与持久化。标题的唯一权威仍是 syncDocumentTitle，
+   这里只把「应用名」交给它，避免两处各自写 document.title 造成闪烁。 */
+const siteBranding = createSiteBrandingController({
+  refs,
+  getUiText: getUiLanguageText,
+  syncDocumentTitle: () => syncDocumentTitle(),
+  showError,
+});
 const previewKeyboardNavigation = createPreviewKeyboardNavigationController({
   refs,
   state,
@@ -2341,7 +2452,7 @@ function readUiLanguage() { try { return normalizeUiLanguage(window.localStorage
 function getUiLanguageText(key) { return UI_LANGUAGE_TEXT[state.uiLanguage]?.[key] || UI_LANGUAGE_TEXT["zh-CN"][key] || ""; }
 function applyUiLanguageText() { document.querySelectorAll("[data-ui-i18n]").forEach((element) => { const text = getUiLanguageText(element.dataset.uiI18n); if (text) element.textContent = text; }); document.querySelectorAll("[data-ui-i18n-aria-label]").forEach((element) => { const text = getUiLanguageText(element.dataset.uiI18nAriaLabel); if (text) element.setAttribute("aria-label", text); }); document.querySelectorAll("[data-ui-i18n-placeholder]").forEach((element) => { const text = getUiLanguageText(element.dataset.uiI18nPlaceholder); if (text) element.setAttribute("placeholder", text); }); document.querySelectorAll("[data-ui-i18n-title]").forEach((element) => { const text = getUiLanguageText(element.dataset.uiI18nTitle); if (text && !element.matches(APP_TOOLTIP_TRIGGER_SELECTOR)) element.setAttribute("title", text); }); document.querySelectorAll("[data-ui-i18n-tooltip]").forEach((element) => { const text = getUiLanguageText(element.dataset.uiI18nTooltip); if (text) element.dataset.tooltip = text; }); }
 function getUiImageRouteLabel(imageRoute) { if (imageRoute === "b") return getUiLanguageText("directMode"); if (imageRoute === "c") return getUiLanguageText("protocolMode"); if (imageRoute === "d") return getUiLanguageText("modeGrok"); return getUiLanguageText("routeMode"); }
-function syncUiLanguage() { const normalized = normalizeUiLanguage(state.uiLanguage); state.uiLanguage = normalized; document.documentElement.lang = normalized; document.documentElement.dataset.uiLanguage = normalized; if (refs.uiLanguageInput) refs.uiLanguageInput.value = normalized; refs.uiLanguageOptions.forEach((button) => { const isActive = button.dataset.uiLanguageOption === normalized; button.classList.toggle("is-active", isActive); button.setAttribute("aria-pressed", String(isActive)); }); applyUiLanguageText(); syncDocumentTitle(); configModelPicker.render(); rerenderUiLanguageSensitiveViews(); if (refs.themeNavAction) refs.themeNavAction.textContent = getUiLanguageText("themeMenu"); updateGenerationModeStatus(); syncThemeToggle(); }
+function syncUiLanguage() { const normalized = normalizeUiLanguage(state.uiLanguage); state.uiLanguage = normalized; document.documentElement.lang = normalized; document.documentElement.dataset.uiLanguage = normalized; if (refs.uiLanguageInput) refs.uiLanguageInput.value = normalized; refs.uiLanguageOptions.forEach((button) => { const isActive = button.dataset.uiLanguageOption === normalized; button.classList.toggle("is-active", isActive); button.setAttribute("aria-pressed", String(isActive)); }); applyUiLanguageText(); syncDocumentTitle(); if (typeof siteBranding !== "undefined") siteBranding.refresh(); configModelPicker.render(); rerenderUiLanguageSensitiveViews(); if (refs.themeNavAction) refs.themeNavAction.textContent = getUiLanguageText("themeMenu"); updateGenerationModeStatus(); syncThemeToggle(); }
 function setUiLanguage(language) { state.uiLanguage = normalizeUiLanguage(language); try { window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, state.uiLanguage); } catch {} syncUiLanguage(); }
 function syncThemeToggle() {
   if (!refs.themeToggleButton || !refs.themeToggleLabel) {
@@ -2786,7 +2897,10 @@ function bindStudioDensitySync() {
 }
 function syncDocumentTitle() {
   const pageName = document.querySelector(`.mega-menu-link[href="#${state.activeView}"]`)?.textContent.trim();
-  document.title = pageName ? `IS - ${pageName}` : "IS";
+  /* 应用名默认是上游的 "IS"；用户自定义品牌名后才接管，其余（页面名、语言切换）逻辑完全沿用上游。
+     typeof 守卫让这段切片在无品牌控制器的上下文里（如 document-title 测试）仍按上游语义返回 "IS"。 */
+  const appName = typeof siteBranding === "undefined" ? "IS" : siteBranding.getDocumentAppName();
+  document.title = pageName ? `${appName} - ${pageName}` : appName;
 }
 async function setActiveView(view) {
   state.activeView = view;
@@ -20469,6 +20583,11 @@ function handleGlobalNavAction(action) {
     return;
   }
 
+  if (action === "brand") {
+    siteBranding.open();
+    return;
+  }
+
   if (action === "output") {
     openOutputDirectory().catch((error) => showError(error.message));
   }
@@ -20603,6 +20722,7 @@ function bindEvents() {
     }
   });
   creationLogoLibrary.bind();
+  siteBranding.bind();
   productImageImportController.bind();
   bindGlobalNavEvents();
   bindTopbarRevealEvents();
@@ -22106,6 +22226,7 @@ function bindEvents() {
 function getStartupRecordLoaders() { return [loadGallery, loadGenerationTasks]; } function loadStartupRecordsInBackground() { void Promise.allSettled(getStartupRecordLoaders().map((load) => load())).then((results) => { const rejected = results.find((result) => result.status === "rejected"); if (!rejected) return; const message = rejected.reason instanceof Error ? rejected.reason.message : String(rejected.reason); console.warn("startup record load failed", rejected.reason); showError(message); setConnectionState("error", "部分历史记录加载失败"); }); }
 async function bootstrap() {
   state.clientSessionId = getOrCreateClientSessionId();
+  await siteBranding.load();
   state.uiLanguage = readUiLanguage();
   syncUiLanguage();
   state.uiTheme = readUiTheme();
