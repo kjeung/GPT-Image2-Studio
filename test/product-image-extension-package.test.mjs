@@ -39,11 +39,11 @@ test("extension ZIP contains reviewable sources and the exact shared import prot
   assert.doesNotMatch(filenames.join("\n"), /artifact|node_modules|\.env|cookie/i);
 });
 
-test("package scripts and desktop distributions include extension sources", async () => {
+test("package scripts and installer distributions include extension sources", async () => {
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const installer = await readFile(new URL("../scripts/build-windows-installer.mjs", import.meta.url), "utf8");
 
   assert.equal(packageJson.scripts["build:extension"], "node scripts/build-product-image-extension.mjs");
-  assert.ok(packageJson.build.files.includes("extensions/product-image-collector/**/*"));
+  assert.equal(packageJson.build, undefined, "the Electron desktop build block must stay out of this fork");
   assert.match(installer, /"extensions\/product-image-collector",/);
 });

@@ -14,7 +14,7 @@ const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 test("Vercel deployment ignores local build and smoke-test artifacts", async () => {
   const ignoreFile = await readFile(new URL("../.vercelignore", import.meta.url), "utf8");
 
-  for (const pattern of ["artifacts/", "dist/", "desktop/", "output/", ".local/", ".vercel/"]) {
+  for (const pattern of ["artifacts/", "dist/", "output/", ".local/", ".vercel/"]) {
     assert.match(ignoreFile, new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"));
   }
 
