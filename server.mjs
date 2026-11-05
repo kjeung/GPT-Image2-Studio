@@ -652,13 +652,59 @@ async function handleModelListPost(request, response) {
   }
 }
 
-async function handleGalleryGet(response) {
+const GALLERY_MAX_LIMIT = 500;
+const GALLERY_DEFAULT_LIMIT = 10;
+
+// `?limit=` bounds the work. An unparseable or non-positive value falls back to
+// the bounded default rather than to an unbounded full scan: a malformed query
+// string must not be able to force the expensive path.
+function parseGalleryLimit(url) {
+  const rawLimit = url.searchParams.get("limit");
+  if (!rawLimit) {
+    // An absent limit is the documented full-listing contract used by
+    // destructive paths (clear all history); only an explicit `all` opts in.
+    return url.searchParams.has("limit") ? GALLERY_DEFAULT_LIMIT : 0;
+  }
+
+  if (rawLimit === "all") {
+    return 0;
+  }
+
+  const parsed = Number.parseInt(rawLimit, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return GALLERY_DEFAULT_LIMIT;
+  }
+
+  return Math.min(parsed, GALLERY_MAX_LIMIT);
+}
+
+async function handleGalleryGet(response, url) {
+  const limit = parseGalleryLimit(url);
+
+  if (!limit) {
+    const items = await listGalleryItems({
+      outputDir,
+      publicBasePath: "/output",
+    });
+
+    return sendJson(response, 200, items, { "X-Gallery-Has-More": "0" });
+  }
+
+  // One extra visible item is parsed so "has more" is exact rather than guessed:
+  // hidden assets (galleryVisible:false) are skipped, so simply seeing more
+  // candidate files would not tell us whether another tile exists.
   const items = await listGalleryItems({
     outputDir,
     publicBasePath: "/output",
+    limit: limit + 1,
   });
+  const hasMore = items.length > limit;
+  const window = hasMore ? items.slice(0, limit) : items;
 
-  sendJson(response, 200, items);
+  return sendJson(response, 200, window, {
+    "X-Gallery-Has-More": hasMore ? "1" : "0",
+    "X-Gallery-Limit": String(limit),
+  });
 }
 
 async function handleGenerationTasksGet(request, response, url) {
@@ -789,9 +835,13 @@ async function handleGalleryMetadataRepair(request, response) {
       metadata: payload.metadata || {},
     });
 
+    // Only the repaired item is echoed back, so parse that one file instead of
+    // re-scanning the whole gallery (the repair itself already paid for one
+    // tree walk to locate the file).
     const items = await listGalleryItems({
       outputDir,
       publicBasePath: "/output",
+      filename,
     });
     const item = items.find((entry) => entry.filename === filename) || null;
 
@@ -5576,7 +5626,7 @@ async function routeRequest(request, response) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/gallery") {
-    return handleGalleryGet(response);
+    return handleGalleryGet(response, url);
   }
 
   if (request.method === "GET" && url.pathname === "/api/ppt/decks") {

@@ -312,3 +312,68 @@ test("gallery organizer paginates waterfall history by five dated sections", () 
     ["2026-04-20", "2026-04-19"],
   );
 });
+
+test("gallery organizer defaults the painted window to the newest ten items", () => {
+  assert.equal(galleryOrganizer.DEFAULT_GALLERY_RENDER_LIMIT, 10);
+  assert.equal(galleryOrganizer.GALLERY_RENDER_LIMIT_STEP, 10);
+
+  const manyFixtures = Array.from({ length: 40 }, (_value, index) => ({
+    filename: `window-${index}.jpeg`,
+    // All 40 images land on one day, which is exactly the case the old
+    // per-day-section pagination could not bound.
+    createdAt: `2026-04-25T${String(23 - Math.floor(index / 2)).padStart(2, "0")}:00:00.000Z`,
+    prompt: `窗口测试 ${index}`,
+  }));
+
+  const renderWindow = galleryOrganizer.paginateGalleryRenderWindow(manyFixtures);
+  assert.equal(renderWindow.totalCount, 40);
+  assert.equal(renderWindow.visibleCount, 10);
+  assert.equal(renderWindow.hiddenCount, 30);
+  assert.equal(renderWindow.hasMore, true);
+  assert.equal(renderWindow.nextLimit, 20);
+  assert.equal(renderWindow.items.length, 10);
+
+  const newestFirst = galleryOrganizer.sortGalleryItemsByCreatedAtDesc(manyFixtures).slice(0, 10);
+  assert.deepEqual(
+    renderWindow.items.map((item) => item.filename),
+    newestFirst.map((item) => item.filename),
+  );
+
+  // The window is grouped into dated sections like the full list, so the view
+  // keeps its date headings without rendering every image.
+  assert.equal(
+    renderWindow.sections.reduce((total, section) => total + section.items.length, 0),
+    10,
+  );
+});
+
+test("gallery render window grows without re-sorting known items and stops at the end", () => {
+  const fixturesShort = Array.from({ length: 7 }, (_value, index) => ({
+    filename: `short-${index}.jpeg`,
+    createdAt: `2026-04-25T0${index}:00:00.000Z`,
+    prompt: `短列表 ${index}`,
+  }));
+
+  const smallWindow = galleryOrganizer.paginateGalleryRenderWindow(fixturesShort);
+  assert.equal(smallWindow.visibleCount, 7);
+  assert.equal(smallWindow.hiddenCount, 0);
+  assert.equal(smallWindow.hasMore, false);
+
+  const grownWindow = galleryOrganizer.paginateGalleryRenderWindow(fixturesShort, 20);
+  assert.equal(grownWindow.visibleCount, 7);
+  assert.equal(grownWindow.hasMore, false);
+  assert.equal(grownWindow.nextLimit, 30);
+});
+
+test("gallery render window normalizes invalid limits back to the default", () => {
+  const fixturesWindow = Array.from({ length: 15 }, (_value, index) => ({
+    filename: `limit-${index}.jpeg`,
+    createdAt: `2026-04-25T0${index}:00:00.000Z`,
+    prompt: `限制 ${index}`,
+  }));
+
+  for (const invalidLimit of [0, -5, Number.NaN, undefined, null]) {
+    const renderWindow = galleryOrganizer.paginateGalleryRenderWindow(fixturesWindow, invalidLimit);
+    assert.equal(renderWindow.visibleCount, 10, `limit ${String(invalidLimit)} should fall back to 10`);
+  }
+});

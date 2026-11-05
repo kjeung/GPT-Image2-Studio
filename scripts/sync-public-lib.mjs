@@ -1,4 +1,4 @@
-﻿import { copyFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -30,6 +30,7 @@ export const PUBLIC_LIB_SYNC_TARGETS = [
   "creation-sku-subjects.mjs",
   "gallery-metadata-recovery.mjs",
   "gallery-organizer.mjs",
+  "gallery-window.mjs",
   "generation-activity-feed.mjs",
   "generation-client.mjs",
   "generation-queue.mjs",

@@ -1,6 +1,7 @@
 import { buildParameterText, formatImageModelLabel, formatRecentOutputMeta } from "/lib/studio-formatters.mjs";
 import { formatLoadingThumbnailStatusLabel, getPreviewPlaceholderState, getStablePreviewLoadingItems } from "/lib/preview-placeholder-state.mjs?v=20260618-thumbnail-status-1";
-import { buildGalleryReferenceFilterOptions, buildGallerySections, buildGallerySizeFilterOptions, buildGalleryTimeFilterOptions, distributeGalleryItemsIntoColumns, filterGalleryItems, getGalleryLayoutModeForWidth, getPromptGenerationGalleryItems, getRecentGalleryItems, normalizeGalleryFilters, paginateGallerySections, sortGalleryItemsByCreatedAtDesc } from "/lib/gallery-organizer.mjs";
+import { buildGalleryReferenceFilterOptions, buildGallerySizeFilterOptions, buildGalleryTimeFilterOptions, distributeGalleryItemsIntoColumns, filterGalleryItems, getGalleryLayoutModeForWidth, getPromptGenerationGalleryItems, getRecentGalleryItems, normalizeGalleryFilters, paginateGallerySections, sortGalleryItemsByCreatedAtDesc, DEFAULT_GALLERY_RENDER_LIMIT, paginateGalleryRenderWindow } from "/lib/gallery-organizer.mjs";
+import { mergeGalleryWindowItems, resolveGalleryLoadMoreState, resolveNextGalleryRenderLimit, shouldFetchMoreGalleryFromServer } from "/lib/gallery-window.mjs";
 import { buildGalleryMetadataCacheEntry, collectGalleryMetadataRepairPatch, mergeGalleryItemWithCachedMetadata, pruneGalleryMetadataCache } from "/lib/gallery-metadata-recovery.mjs";
 import { getDefaultGenerationSize, getGenerationSizeOptions, getModelProtocolImageSizeOptions, normalizeGenerationSize, normalizeModelProtocolImageSize } from "/lib/generation-size-options.mjs?v=20260614-image2-sizes-1";
 import { getOutputFormatOptions, normalizeOutputFormat, } from "/lib/output-format-options.mjs?v=20260504-vercel-static-lib-1";
@@ -456,9 +457,11 @@ const state = {
   creationRoleSelectionManuallyEdited: false,
   creationSelectedRoles: [],
   gallery: [],
+  galleryHasMore: false,
   galleryLoading: true,
   galleryLoadError: "",
   galleryMetadataCache: {},
+  galleryRenderLimit: DEFAULT_GALLERY_RENDER_LIMIT,
   galleryControls: { ...DEFAULT_GALLERY_CONTROLS },
   galleryHistoryPage: 0,
   galleryColumnPreset: DEFAULT_GALLERY_COLUMN_PRESET,
@@ -833,6 +836,8 @@ const refs = {
   galleryEmpty: document.querySelector("#galleryEmpty"),
   galleryFilters: document.querySelector("#galleryFilters"),
   galleryHelperText: document.querySelector("#galleryHelperText"),
+  galleryLoadMoreButton: document.querySelector("#galleryLoadMoreButton"),
+  galleryLoadMoreStatus: document.querySelector("#galleryLoadMoreStatus"),
   galleryNextPageButton: document.querySelector("#galleryNextPageButton"),
   galleryPageStatus: document.querySelector("#galleryPageStatus"),
   galleryPagination: document.querySelector("#galleryPagination"),
@@ -6887,7 +6892,12 @@ function createGallerySection(section) {
 function renderGalleryView() {
   const filters = getGalleryFilterSnapshot();
   const visibleItems = getVisibleGalleryItems();
-  const allSections = buildGallerySections(visibleItems);
+  // Paint a bounded newest-first window instead of every archived image. The
+  // previous code paginated by *dated section* (5 days per page), which never
+  // bounded anything once thousands of images shared a handful of days: a
+  // single "page" could still be the entire archive.
+  const renderWindow = paginateGalleryRenderWindow(visibleItems, state.galleryRenderLimit);
+  const allSections = renderWindow.sections;
   const shouldPaginateHistory = !filters.query;
   const pagination = shouldPaginateHistory
     ? paginateGallerySections(allSections, state.galleryHistoryPage)
@@ -6897,14 +6907,13 @@ function renderGalleryView() {
   }
   const sections = pagination.sections;
   const displayedCount = getGallerySectionItemCount(sections);
+  const totalCount = state.gallery.length;
 
   refs.gallerySections.innerHTML = "";
   refs.galleryCount.textContent =
-    displayedCount === state.gallery.length
-      ? `${state.gallery.length} 张`
-      : `${displayedCount} / ${state.gallery.length} 张`;
+    displayedCount === totalCount ? `${totalCount} 张` : `${displayedCount} / ${totalCount} 张`;
   refs.galleryEmpty.textContent =
-    state.gallery.length === 0
+    totalCount === 0
       ? "还没有本地输出，先回到 Studio 生成一张图。"
       : hasActiveGalleryFilters(filters)
         ? "当前筛选没有命中结果，试试清空部分筛选。"
@@ -6913,6 +6922,7 @@ function renderGalleryView() {
   renderGalleryPagination(pagination, shouldPaginateHistory);
   renderGalleryFilters(visibleItems, sections, pagination, shouldPaginateHistory);
   renderGalleryColumnPresetButtons();
+  renderGalleryLoadMore(renderWindow);
 
   sections.forEach((section) => {
     refs.gallerySections.appendChild(createGallerySection(section));
@@ -6921,6 +6931,24 @@ function renderGalleryView() {
   scheduleGalleryPanelHeightSync();
   scheduleGalleryScrollSync();
   renderGallerySelectionToolbar();
+}
+
+function renderGalleryLoadMore(renderWindow) {
+  if (!refs.galleryLoadMoreButton || !refs.galleryLoadMoreStatus) {
+    return;
+  }
+
+  const control = resolveGalleryLoadMoreState({
+    renderWindow,
+    hasMoreOnServer: state.galleryHasMore,
+    loading: state.galleryLoading,
+  });
+
+  refs.galleryLoadMoreButton.classList.toggle("hidden", !control.shouldShow);
+  refs.galleryLoadMoreButton.disabled = control.disabled;
+  refs.galleryLoadMoreStatus.classList.toggle("hidden", !control.shouldShow);
+  refs.galleryLoadMoreButton.textContent = control.buttonText;
+  refs.galleryLoadMoreStatus.textContent = control.statusText;
 }
 
 function renderStudio() {
@@ -15327,24 +15355,37 @@ async function loadConfig() {
   syncConfigUi(state.config);
 }
 
+async function fetchGalleryWindow(limit) {
+  // The server parses only the newest `limit` images and tells us whether more
+  // exist. Before this, the gallery pulled the entire archive (5.85MB / ~2.5s
+  // at 3000 images) on every load, including the Studio's first paint.
+  const response = await fetch(`/api/gallery?limit=${limit}`);
+  if (!response.ok) {
+    throw new Error("读取本地画廊失败");
+  }
+
+  const payload = await response.json();
+  const hasMore = response.headers.get("X-Gallery-Has-More") === "1";
+  const browserCachedItems = await readBrowserCachedGalleryItems({ limit: state.galleryRenderLimit });
+  const sortedItems = sortGalleryItemsByCreatedAtDesc(
+    mergeServerAndBrowserGalleryItems(Array.isArray(payload) ? payload : [], browserCachedItems),
+  );
+
+  return { sortedItems, hasMore };
+}
+
 async function loadGallery() {
   state.galleryLoading = true;
   state.galleryLoadError = "";
+  state.galleryRenderLimit = DEFAULT_GALLERY_RENDER_LIMIT;
+  state.galleryHasMore = false;
   renderActiveView();
 
   try {
-    const response = await fetch("/api/gallery");
-    if (!response.ok) {
-      throw new Error("读取本地画廊失败");
-    }
-
-    const payload = await response.json();
-    const browserCachedItems = await readBrowserCachedGalleryItems();
-    const sortedItems = sortGalleryItemsByCreatedAtDesc(
-      mergeServerAndBrowserGalleryItems(Array.isArray(payload) ? payload : [], browserCachedItems),
-    );
+    const { sortedItems, hasMore } = await fetchGalleryWindow(state.galleryRenderLimit);
     const hydratedGallery = hydrateGalleryItems(sortedItems);
     state.gallery = sortGalleryItemsByCreatedAtDesc(hydratedGallery.items);
+    state.galleryHasMore = hasMore;
     state.galleryLoading = false;
     state.galleryLoadError = "";
     renderAll();
@@ -15353,6 +15394,48 @@ async function loadGallery() {
     state.galleryLoading = false;
     state.galleryLoadError = error instanceof Error ? error.message : String(error);
     renderAll();
+    throw error;
+  }
+}
+
+async function loadMoreGallery() {
+  if (state.galleryLoading) {
+    return;
+  }
+
+  const knownCount = getVisibleGalleryItems().length;
+  const renderWindow = paginateGalleryRenderWindow(
+    getVisibleGalleryItems(),
+    state.galleryRenderLimit,
+  );
+  const nextLimit = resolveNextGalleryRenderLimit({
+    renderLimit: state.galleryRenderLimit,
+    knownCount,
+  });
+
+  // Fast path: the window already holds more items than the view is painting,
+  // so widening the local window costs nothing and needs no disk access.
+  if (!shouldFetchMoreGalleryFromServer({ renderWindow, hasMoreOnServer: state.galleryHasMore })) {
+    state.galleryRenderLimit = nextLimit;
+    renderGalleryView();
+    return;
+  }
+
+  state.galleryLoading = true;
+  renderGalleryView();
+
+  try {
+    const { sortedItems, hasMore } = await fetchGalleryWindow(nextLimit);
+    const hydratedGallery = hydrateGalleryItems(sortedItems);
+    state.gallery = mergeGalleryWindowItems(state.gallery, sortGalleryItemsByCreatedAtDesc(hydratedGallery.items));
+    state.galleryHasMore = hasMore;
+    state.galleryRenderLimit = nextLimit;
+    state.galleryLoading = false;
+    renderGalleryView();
+    void repairGalleryMetadataQueue(hydratedGallery.repairQueue);
+  } catch (error) {
+    state.galleryLoading = false;
+    renderGalleryView();
     throw error;
   }
 }
@@ -15668,20 +15751,25 @@ async function clearHistory() {
     return;
   }
 
+  // With a bounded render window, `state.gallery` only holds the newest items
+  // the client has loaded. Deleting just those would silently leave the rest of
+  // the archive behind under the same "清空所有历史输出" prompt, so the full
+  // listing is fetched first.
   const confirmed = window.confirm("确认清空所有历史输出吗？");
   if (!confirmed) {
     return;
   }
 
+  const allGalleryItems = await fetchAllGalleryItemsForDelete();
   await Promise.all(
-    state.gallery.flatMap((item) => [
+    allGalleryItems.flatMap((item) => [
       preserveReferenceAnalysisGenerationItemForDelete(item),
       preserveImageDecompositionGenerationItemForDelete(item),
       preserveImageEditGenerationItemForDelete(item),
       preserveQuickBlendGenerationItemForDelete(item),
     ]),
   );
-  for (const item of [...state.gallery]) {
+  for (const item of allGalleryItems) {
     const response = await fetch("/api/output/delete", {
       method: "POST",
       headers: {
@@ -15698,12 +15786,27 @@ async function clearHistory() {
   }
 
   state.gallery = [];
+  state.galleryHasMore = false;
   state.galleryMetadataCache = {};
   writeGalleryMetadataCache(state.galleryMetadataCache);
   await clearBrowserImageCache();
   state.selectedPreviewKey = "";
   closeLightbox();
   renderAll();
+}
+
+async function fetchAllGalleryItemsForDelete() {
+  // Destructive paths need the complete listing, not the painted window. The
+  // unauthored (no `limit`) response is the existing full-scan contract.
+  const response = await fetch("/api/gallery");
+  if (!response.ok) {
+    throw new Error("读取本地画廊失败");
+  }
+
+  const payload = await response.json();
+  const serverItems = Array.isArray(payload) ? payload : [];
+  const merged = mergeServerAndBrowserGalleryItems(serverItems, state.gallery);
+  return sortGalleryItemsByCreatedAtDesc(merged);
 }
 
 function buildGenerationFormData(job) {
@@ -17710,6 +17813,9 @@ function bindEvents() {
   });
   refs.galleryNextPageButton.addEventListener("click", () => {
     setGalleryHistoryPage(state.galleryHistoryPage + 1);
+  });
+  refs.galleryLoadMoreButton?.addEventListener("click", () => {
+    loadMoreGallery().catch((error) => showError(error.message));
   });
   refs.focusGalleryButton?.addEventListener("click", () => {
     setActiveView("gallery");

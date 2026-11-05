@@ -654,3 +654,135 @@ test("gallery store repairs sparse metadata from a richer client-side payload", 
   assert.deepEqual(sidecarPayload.referenceImageNames, ["reference-a.png"]);
   assert.equal(indexPayload["repairable.jpeg"].prompt, "鐩存挱闂存姢鑲ょぜ鐩掍富瑙嗚");
 });
+
+test("gallery store limits listing to the newest images without parsing the whole archive", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "responses-gallery-limit-"));
+  const outputDir = join(rootDir, "output");
+  const indexPath = join(rootDir, ".local", "gallery-index.json");
+
+  const savedFilenames = [];
+  for (let index = 0; index < 12; index += 1) {
+    const saved = await saveGeneratedAsset({
+      outputDir,
+      indexPath,
+      filename: `limited-${index}.png`,
+      imageBuffer: Buffer.from(`image-${index}`),
+      metadata: {
+        prompt: `限制测试 ${index}`,
+        createdAt: `2026-04-26T0${index}:00:00.000Z`,
+        format: "png",
+        size: "1024x1024",
+      },
+    });
+    savedFilenames.push(saved.filename);
+  }
+
+  const limited = await listGalleryItems({
+    outputDir,
+    indexPath,
+    publicBasePath: "/output",
+    limit: 10,
+  });
+  const full = await listGalleryItems({
+    outputDir,
+    indexPath,
+    publicBasePath: "/output",
+  });
+
+  assert.equal(full.length, 12);
+  assert.equal(limited.length, 10);
+  // A limited response must be the exact newest-first prefix of the unlimited
+  // one, or "load more" could append duplicates or gaps.
+  assert.deepEqual(
+    limited.map((item) => item.filename),
+    full.slice(0, 10).map((item) => item.filename),
+  );
+  assert.equal(limited[0].filename, "limited-11.png");
+});
+
+test("gallery store limit reads single-image repairs without rescanning the archive", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "responses-gallery-single-"));
+  const outputDir = join(rootDir, "output");
+  const indexPath = join(rootDir, ".local", "gallery-index.json");
+
+  for (let index = 0; index < 4; index += 1) {
+    await saveGeneratedAsset({
+      outputDir,
+      indexPath,
+      filename: `single-${index}.png`,
+      imageBuffer: Buffer.from(`image-${index}`),
+      metadata: {
+        prompt: `单图 ${index}`,
+        createdAt: `2026-04-26T0${index}:00:00.000Z`,
+        format: "png",
+      },
+    });
+  }
+
+  const target = await listGalleryItems({
+    outputDir,
+    indexPath,
+    publicBasePath: "/output",
+    filename: "single-2.png",
+  });
+
+  assert.equal(target.length, 1);
+  assert.equal(target[0].filename, "single-2.png");
+  assert.match(target[0].imageUrl, /^\/output\/2026-04\/04-26\/2026-04-26-prompt\/single-2\.png\?/);
+});
+
+test("gallery store keeps hidden assets out of a limited listing instead of padding it", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "responses-gallery-hidden-limit-"));
+  const outputDir = join(rootDir, "output");
+  const indexPath = join(rootDir, ".local", "gallery-index.json");
+
+  // A hidden creation asset is newer than every visible image; a limited
+  // listing must skip it rather than count it against the limit.
+  await saveGeneratedAsset({
+    outputDir,
+    indexPath,
+    filename: "hidden-newest.png",
+    imageBuffer: Buffer.from("hidden"),
+    metadata: {
+      prompt: "隐藏资产",
+      createdAt: "2026-04-26T10:00:00.000Z",
+      format: "png",
+      galleryVisible: false,
+      creationSetId: "set-1",
+    },
+  });
+
+  for (let index = 0; index < 12; index += 1) {
+    await saveGeneratedAsset({
+      outputDir,
+      indexPath,
+      filename: `visible-${index}.png`,
+      imageBuffer: Buffer.from(`image-${index}`),
+      metadata: {
+        prompt: `可见 ${index}`,
+        createdAt: `2026-04-26T0${index}:00:00.000Z`,
+        format: "png",
+      },
+    });
+  }
+
+  const limited = await listGalleryItems({
+    outputDir,
+    indexPath,
+    publicBasePath: "/output",
+    limit: 10,
+  });
+  const full = await listGalleryItems({
+    outputDir,
+    indexPath,
+    publicBasePath: "/output",
+  });
+
+  assert.equal(full.length, 12);
+  assert.equal(limited.length, 10);
+  assert.equal(limited.some((item) => item.filename === "hidden-newest.png"), false);
+  assert.deepEqual(
+    limited.map((item) => item.filename),
+    full.slice(0, 10).map((item) => item.filename),
+  );
+});

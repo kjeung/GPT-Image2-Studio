@@ -9145,6 +9145,39 @@ html[data-ui-layout="mobile"] .image-compress-result-ghost {
   gap: 6px;
 }
 
+.gallery-load-more {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.gallery-load-more-status {
+  color: var(--muted);
+  font-size: var(--type-subtitle-size);
+  white-space: nowrap;
+}
+
+.gallery-load-more-button {
+  min-height: var(--gallery-chip-height);
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(142, 156, 255, 0.34);
+  background: rgba(142, 156, 255, 0.1);
+  color: var(--text);
+  font-size: var(--type-subtitle-size);
+}
+
+.gallery-load-more-button:hover:not(:disabled) {
+  border-color: rgba(142, 156, 255, 0.52);
+  background: rgba(142, 156, 255, 0.16);
+}
+
+.gallery-load-more-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 .gallery-page-button {
   min-height: var(--gallery-chip-height);
   padding: 0 10px;

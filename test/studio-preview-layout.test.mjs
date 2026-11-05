@@ -1275,7 +1275,9 @@ test("quick blend mode implements upload pairing queue preview and cleanup contr
   assert.match(app, /if \(job\.mode === "quick-blend"\) \{[\s\S]*payload\.item\.mode = "quick-blend";[\s\S]*storeQuickBlendGenerationItem\(payload\.item\);[\s\S]*replaceQuickBlendGenerationKey\(makeJobPreviewKey\(job\.id\), makeGalleryPreviewKey\(payload\.item\.filename\)\);/);
   assert.match(app, /if \(job\.mode === "quick-blend"\) \{[\s\S]*removeQuickBlendGenerationKey\(makeJobPreviewKey\(job\.id\)\);[\s\S]*setQuickBlendFeedback\(message, "error"\);/);
   assert.match(app, /async function deleteGalleryItem\(item\) \{[\s\S]*preserveQuickBlendGenerationItemForDelete\(item\),[\s\S]*state\.gallery = state\.gallery\.filter/);
-  assert.match(app, /async function clearHistory\(\) \{[\s\S]*preserveQuickBlendGenerationItemForDelete\(item\),[\s\S]*state\.gallery = \[\];/);
+  // Clearing history must reach past the bounded render window, so it fetches
+  // the full listing before deleting instead of iterating the painted items.
+  assert.match(app, /async function clearHistory\(\) \{[\s\S]*const allGalleryItems = await fetchAllGalleryItemsForDelete\(\);[\s\S]*preserveQuickBlendGenerationItemForDelete\(item\),[\s\S]*state\.gallery = \[\];/);
 });
 
 test("quick blend generation thumbnails keep submitted pair order while completing out of order", async () => {
@@ -2310,7 +2312,7 @@ test("reference orchestration analysis is a separate studio mode outside prompt 
   assert.match(app, /if \(job\.mode === "reference-analysis"\) \{[\s\S]*state\.referenceAnalysis\.previewKey = makeGalleryPreviewKey\(payload\.item\.filename\);/);
   assert.match(app, /if \(job\.mode === "reference-analysis"\) \{[\s\S]*payload\.item\.mode = "reference-analysis";[\s\S]*storeReferenceAnalysisGenerationItem\(payload\.item\);[\s\S]*replaceReferenceAnalysisGenerationKey\(makeJobPreviewKey\(job\.id\), makeGalleryPreviewKey\(payload\.item\.filename\)\);/);
   assert.match(app, /async function deleteGalleryItem\(item\) \{[\s\S]*preserveReferenceAnalysisGenerationItemForDelete\(item\),[\s\S]*preserveImageDecompositionGenerationItemForDelete\(item\),[\s\S]*state\.gallery = state\.gallery\.filter/);
-  assert.match(app, /async function clearHistory\(\) \{[\s\S]*state\.gallery\.flatMap\(\(item\) => \[[\s\S]*preserveReferenceAnalysisGenerationItemForDelete\(item\),[\s\S]*preserveImageDecompositionGenerationItemForDelete\(item\),[\s\S]*state\.gallery = \[\];/);
+  assert.match(app, /async function clearHistory\(\) \{[\s\S]*const allGalleryItems = await fetchAllGalleryItemsForDelete\(\);[\s\S]*allGalleryItems\.flatMap\(\(item\) => \[[\s\S]*preserveReferenceAnalysisGenerationItemForDelete\(item\),[\s\S]*preserveImageDecompositionGenerationItemForDelete\(item\),[\s\S]*state\.gallery = \[\];/);
   const referenceApplyBody =
     app.match(/function applyReferenceAnalysisPrompt\(index\) \{[\s\S]*?\r?\n\}\r?\n\r?\nfunction mapPromptAgentPrompt/)?.[0] || "";
   assert.match(referenceApplyBody, /state\.referenceAnalysis\.selectedPrompt = promptText;/);
@@ -2963,9 +2965,13 @@ test("studio caches generated browser images for persistent preview and download
   assert.match(app, /function mergeGalleryItemWithExistingBrowserImage\(item\) \{/);
   assert.match(app, /const imageMergedItem = mergeGalleryItemWithExistingBrowserImage\(item\);/);
   assert.match(app, /const hydratedItem = mergeGalleryItemWithCachedMetadata\(imageMergedItem, state\.galleryMetadataCache\[item\?\.filename\]\);/);
-  assert.match(browserImageCache, /export async function readBrowserCachedGalleryItems\(\) \{/);
+  assert.match(browserImageCache, /export async function readBrowserCachedGalleryItems\(\{ limit \} = \{\}\) \{/);
   assert.match(app, /function upsertGalleryItem\(item\) \{[\s\S]*void cacheBrowserGalleryItem\(hydratedItem\);/);
-  assert.match(app, /async function loadGallery\(\) \{[\s\S]*const browserCachedItems = await readBrowserCachedGalleryItems\(\);[\s\S]*state\.gallery = sortGalleryItemsByCreatedAtDesc/);
+  // The gallery window is bounded: startup asks for the newest N images only,
+  // and restores browser-cached images up to the same bound.
+  assert.match(app, /const response = await fetch\(`\/api\/gallery\?limit=\$\{limit\}`\);/);
+  assert.match(app, /async function fetchGalleryWindow\(limit\) \{[\s\S]*const browserCachedItems = await readBrowserCachedGalleryItems\(\{ limit: state\.galleryRenderLimit \}\);/);
+  assert.match(app, /async function loadGallery\(\) \{[\s\S]*const \{ sortedItems, hasMore \} = await fetchGalleryWindow\(state\.galleryRenderLimit\);[\s\S]*state\.gallery = sortGalleryItemsByCreatedAtDesc/);
   assert.match(app, /async function deleteGalleryItem\(item\) \{[\s\S]*await deleteBrowserCachedGalleryItem\(item\.filename\);/);
   assert.match(app, /async function clearHistory\(\) \{[\s\S]*await clearBrowserImageCache\(\);/);
   assert.match(browserImageCache, /export function dataUrlToBlob\(dataUrl\) \{/);

@@ -1,5 +1,11 @@
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_GALLERY_HISTORY_DAYS_PER_PAGE = 5;
+// The gallery archives every image ever generated. Rendering all of them up
+// front is what made the view slow: every tile is a full-size <img>, and the
+// browser keeps fetching well past the viewport even with loading="lazy". The
+// view therefore renders a small newest-first window and grows on demand.
+export const DEFAULT_GALLERY_RENDER_LIMIT = 10;
+export const GALLERY_RENDER_LIMIT_STEP = 10;
 const VALID_GALLERY_WINDOW_FILTERS = new Set(["all", "today", "recent", "older"]);
 const VALID_GALLERY_REFERENCE_FILTERS = new Set(["all", "with-reference", "without-reference"]);
 const PROMPT_GENERATION_KINDS = new Set(["", "prompt", "image"]);
@@ -278,6 +284,39 @@ export function getPromptGenerationGalleryItems(items) {
 export function getRecentGalleryItems(items, limit = 4) {
   const resolvedLimit = Number.isInteger(limit) && limit > 0 ? limit : 4;
   return sortGalleryItemsByCreatedAtDesc(items).slice(0, resolvedLimit);
+}
+
+export function normalizeGalleryRenderLimit(value, fallback = DEFAULT_GALLERY_RENDER_LIMIT) {
+  const limit = Number(value);
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return fallback;
+  }
+
+  return Math.floor(limit);
+}
+
+// Newest-first window that the gallery actually paints. `totalCount` describes
+// the filtered set the window came from, so the view can say "10 / 3000" and
+// offer "load more" without holding every tile in the DOM.
+export function paginateGalleryRenderWindow(
+  items,
+  limit = DEFAULT_GALLERY_RENDER_LIMIT,
+  referenceNow = new Date(),
+) {
+  const sortedItems = sortGalleryItemsByCreatedAtDesc(items);
+  const resolvedLimit = Math.max(0, normalizeGalleryRenderLimit(limit));
+  const visibleItems = sortedItems.slice(0, resolvedLimit);
+  const totalCount = sortedItems.length;
+
+  return {
+    items: visibleItems,
+    sections: buildGallerySections(visibleItems, referenceNow),
+    totalCount,
+    visibleCount: visibleItems.length,
+    hiddenCount: Math.max(0, totalCount - visibleItems.length),
+    hasMore: totalCount > visibleItems.length,
+    nextLimit: resolvedLimit + GALLERY_RENDER_LIMIT_STEP,
+  };
 }
 
 export function normalizeGalleryHistoryPage(value) {
