@@ -3,21 +3,17 @@
   "version": "0.2.116",
   "private": true,
   "type": "module",
-  "main": "desktop/main.mjs",
   "description": "本地优先的 AI 图像生成与视觉创作工作台",
   "author": "aEboli",
   "scripts": {
     "start": "node server.mjs",
     "dev": "node server.mjs",
-    "desktop": "electron .",
-    "test:desktop-smoke": "electron . --desktop-smoke",
     "generate": "node generate-image.mjs",
     "help": "node generate-image.mjs --help",
     "import:youmind": "node scripts/import-youmind-prompt-library.mjs",
     "sync:public-lib": "node scripts/sync-public-lib.mjs",
     "build:extension": "node scripts/build-product-image-extension.mjs",
     "build:installer": "node scripts/build-windows-installer.mjs",
-    "build:desktop": "electron-builder --win nsis --x64",
     "release:major": "node scripts/release-patch.mjs --type major",
     "release:minor": "node scripts/release-patch.mjs --type minor",
     "release:feature": "node scripts/release-patch.mjs --type feature",
@@ -48,52 +44,7 @@
   },
   "devDependencies": {
     "@fission-ai/openspec": "1.6.0",
-    "electron": "^43.2.0",
-    "electron-builder": "^26.15.3",
     "lucide-static": "1.37.0",
     "parse5": "8.0.1"
-  },
-  "build": {
-    "appId": "com.aeboli.gptimage2studio",
-    "productName": "GPT-Image2-Studio",
-    "artifactName": "${productName}-Desktop-Setup-v${version}-${arch}.${ext}",
-    "asar": true,
-    "directories": {
-      "output": "artifacts/desktop",
-      "buildResources": "build/desktop"
-    },
-    "files": [
-      "desktop/**/*",
-      "server.mjs",
-      "generate-image.mjs",
-      "lib/**/*",
-      "public/**/*",
-      "extensions/product-image-collector/**/*",
-      "build/desktop/icon.png",
-      "README.md",
-      "docs/windows-desktop.md",
-      "package.json"
-    ],
-    "win": {
-      "icon": "build/desktop/icon.ico",
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "GPT-Image2-Studio",
-      "uninstallDisplayName": "${productName} ${version}",
-      "deleteAppDataOnUninstall": false
-    }
   }
 }

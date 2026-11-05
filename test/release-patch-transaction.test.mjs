@@ -10,7 +10,6 @@ const maintainedTargets = [
   "public/index.html",
   "README.md",
   "README.zh-CN.md",
-  "docs/windows-desktop.md",
   "docs/windows-installer.md",
 ];
 
@@ -31,11 +30,6 @@ async function createFixture() {
   );
   await writeFile(join(rootDir, "README.md"), "Current version: `v1.2.003`\n", "utf8");
   await writeFile(join(rootDir, "README.zh-CN.md"), "当前版本：`v1.2.003`\n", "utf8");
-  await writeFile(
-    join(rootDir, "docs", "windows-desktop.md"),
-    "`GPT-Image2-Studio-Desktop-Setup-v1.2.003-x64.exe` 是桌面安装包。\n",
-    "utf8",
-  );
   await writeFile(
     join(rootDir, "docs", "windows-installer.md"),
     "`GPT-Image2-Studio-Setup-v1.2.003.exe` 是兼容安装包。\n",

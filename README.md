@@ -4,7 +4,6 @@
 
 [![Version](https://img.shields.io/badge/version-v0.2.116-2563eb.svg)](https://github.com/aEboli/GPT-Image2-Studio/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933.svg)](https://nodejs.org/)
-[![Windows](https://img.shields.io/badge/Windows-Installers-0078d4.svg)](https://github.com/aEboli/GPT-Image2-Studio/releases)
 
 **A local-first AI image generation and visual production workbench**
 
@@ -33,11 +32,10 @@ Installing is not enough on its own: nothing generates until you enter your own 
 
 | Goal | Recommended start | What you get |
 | --- | --- | --- |
-| Use Studio on Windows | Download the [desktop installer](https://github.com/aEboli/GPT-Image2-Studio/releases) | A self-contained Electron window; Node.js is not required after installation |
 | Try or develop locally | Run the source service with Node.js 20+ | Direct access to the UI and server source, local files, and development commands |
 | Host a preview | Deploy the repository with Vercel | A browser endpoint for validation; use temporary storage and validate long jobs before production |
 
-The desktop installer is the shortest path for daily Windows use. Use the portable ZIP when you do not want an install record. Use the source checkout when you need local development or want to inspect the generated files.
+Use the source checkout or the legacy browser installer; see [Windows installer documentation](./docs/windows-installer.md).
 
 ### Run from source
 
@@ -68,24 +66,11 @@ Start the launcher on another port with `launch-studio.cmd -Port 3601`, or call 
 pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./launch-studio.ps1 -Root "project directory" -Port 3601
 ```
 
-The pure Node.js/Electron start commands and `stop-studio-services.cmd` do not require PowerShell 7. The legacy IExpress installer only needs PowerShell 7.4+ to extract its archive when `tar.exe` is unavailable.
-
-### Windows desktop app (recommended)
-
-Download `GPT-Image2-Studio-Desktop-Setup-v0.2.116-x64.exe` from [GitHub Releases](https://github.com/aEboli/GPT-Image2-Studio/releases). The Electron app runs in a dedicated window and includes its runtime, so Node.js is not required after installation. See [Windows desktop documentation](./docs/windows-desktop.md).
-
-For a no-install desktop copy, download `GPT-Image2-Studio-Portable-v0.2.116-x64.zip`, extract the complete archive, and run `GPT-Image2-Studio.exe` at the archive root. Keep the extracted files together; this portable copy does not create an installer entry or uninstall record.
-
-For desktop development, Electron 43 requires Node.js 22.12 or newer:
-
-```powershell
-cmd /c npm ci
-cmd /c npm run desktop
-```
+The pure Node.js start commands and `stop-studio-services.cmd` do not require PowerShell 7. The legacy IExpress installer only needs PowerShell 7.4+ to extract its archive when `tar.exe` is unavailable.
 
 ### Windows browser installer
 
-The legacy browser-installer flow remains documented for local builds, but the `v0.2.116` GitHub Release does not include its IExpress package. Use the desktop NSIS installer or the portable ZIP above; see [Windows installer documentation](./docs/windows-installer.md) only if you need to build the compatibility flow yourself.
+The legacy browser-installer flow remains documented for local builds, but the `v0.2.116` GitHub Release does not include its IExpress package; see [Windows installer documentation](./docs/windows-installer.md) if you need to build the compatibility flow yourself.
 
 ## Configuration
 
@@ -105,8 +90,7 @@ Create keys in the OpenAI console for the official channel; compatible services 
 
 #### Step 2: open the configuration panel
 
-- From source: run `cmd /c npm start` and open `http://127.0.0.1:3600`.
-- Desktop app: launch `GPT-Image2-Studio`. The built-in service uses a dynamic loopback port, so there is no address to type.
+- Run `cmd /c npm start` and open `http://127.0.0.1:3600`.
 - Click **配置** (Configuration) in the top-right corner, or use the top navigation **配置 → 配置 API**. The panel opens on the configuration sections.
 - The drawer header carries a `CN` / `EN` switch. Press `EN` once and the whole interface, including every label below, turns English.
 - Until a save succeeds, the top-right status stays on `配置未保存` (Configuration not saved).
@@ -213,7 +197,7 @@ Close the panel, go back to **提示词生图** (Prompt-to-image), write one sho
 | Route mode fails for images while text calls succeed | The provider does not support the Responses `image_generation` tool | Switch to direct-call mode and set the image suffix to `images/generations` |
 | A token or remote authentication prompt appears | You are reaching the local service over a non-loopback address | See [Remote access](#remote-access) |
 
-Configuration stays local: the Node service writes `.local/config.json`, the desktop build writes the Electron app-data directory, and cloud deployments keep private values in the browser. Do not leave keys on a shared machine.
+Configuration stays local: the Node service writes `.local/config.json`, and cloud deployments keep private values in the browser. Do not leave keys on a shared machine.
 
 ### Configure in the UI
 
@@ -289,12 +273,11 @@ The default listener is `127.0.0.1`. Do not expose it directly to the public int
 
 GPT-Image2-Studio is designed for creators, ecommerce operators, designers, and content teams who need more than a single image prompt. It keeps references, plans, queued jobs, retries, generated assets, and request metadata together while preserving a local-first trust boundary.
 
-The same application can run in three ways:
+The same application can run in two ways:
 
 | Runtime | Best for | Data boundary |
 | --- | --- | --- |
 | Local Node.js service | Full daily workflow and development | Configuration, records, and outputs stay on the local machine by default |
-| Windows desktop app | A dedicated window, taskbar identity, and standard uninstall flow | Electron provides the runtime; closing the last window stops the local service |
 | Windows browser installer | The legacy browser-launch workflow | The installer includes `node.exe` and opens the default browser |
 
 The repository also contains a Vercel configuration. Vercel functions use temporary storage, so Preview validation is required for long jobs, SSE, and file lifecycles before production deployment.
@@ -421,11 +404,10 @@ The repository includes `vercel.json` and a standard request handler for Serverl
 ### Windows packages
 
 ```powershell
-cmd /c npm run build:desktop
 cmd /c npm run build:installer
 ```
 
-Artifacts are written below `artifacts/desktop/` and `artifacts/windows-installer/`. Build output, runtime data, logs, and credentials are ignored and must not be committed.
+Artifacts are written below `artifacts/windows-installer/`. Build output, runtime data, logs, and credentials are ignored and must not be committed.
 
 ## Local data and privacy
 
@@ -513,7 +495,6 @@ Creation, Portrait, Article Illustration, and PPT each expose independent reason
 
 ```text
 GPT-Image2-Studio/
-|-- desktop/                     # Electron main process and security policy
 |-- docs/                        # Installation, release, design, and screenshots
 |-- examples/                    # API and SSE examples
 |-- lib/                         # Server and browser-shared modules
@@ -531,7 +512,6 @@ GPT-Image2-Studio/
 
 ```powershell
 cmd /c npm run dev
-cmd /c npm run desktop
 cmd /c npm run help
 cmd /c npm run sync:public-lib
 cmd /c npm test
@@ -549,7 +529,7 @@ cmd /c npx --no-install openspec validate --all --strict
 git diff --check
 ```
 
-Desktop and installer changes additionally require `npm run test:desktop-smoke`, `npm run build:desktop`, and `npm run build:installer`. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the OpenSpec workflow and dirty-worktree rules.
+Installer changes additionally require `npm run build:installer`. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the OpenSpec workflow and dirty-worktree rules.
 
 ## Releases
 
@@ -557,13 +537,12 @@ Desktop and installer changes additionally require `npm run test:desktop-smoke`,
 - Versions use `major.minor.patch` with a three-digit patch segment: major bumps reset minor and patch, minor bumps reset patch, feature bumps add `0.010`, and ordinary updates add `0.001`.
 - Use `npm run release:major`, `npm run release:minor`, `npm run release:feature`, or `npm run release:patch` with `--summary`; each release changes exactly one level.
 - Current release notes: [v0.2.116](./docs/releases/v0.2.116.md).
-- Windows packages are distributed through [GitHub Releases](https://github.com/aEboli/GPT-Image2-Studio/releases). Check the release notes for hashes and signing status.
+- Windows installer packages are built locally; this fork ships no desktop build. Check the release notes for hashes and signing status.
 - `npm run check:release:strict` requires a clean worktree and a matching tag on the current commit.
 
 ## Documentation
 
 - [Chinese README](./README.zh-CN.md)
-- [Windows desktop app](./docs/windows-desktop.md)
 - [Windows browser installer](./docs/windows-installer.md)
 - [Product image collector extension](./extensions/product-image-collector/README.md)
 - [Security policy](./SECURITY.md)

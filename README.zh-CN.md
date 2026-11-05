@@ -4,7 +4,6 @@
 
 [![Version](https://img.shields.io/badge/version-v0.2.116-2563eb.svg)](https://github.com/aEboli/GPT-Image2-Studio/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933.svg)](https://nodejs.org/)
-[![Windows](https://img.shields.io/badge/Windows-Installer-0078d4.svg)](https://github.com/aEboli/GPT-Image2-Studio/releases)
 
 **本地优先的 AI 图像生成与视觉创作工作台**
 
@@ -31,11 +30,10 @@
 
 | 目标 | 推荐入口 | 适合场景 |
 | --- | --- | --- |
-| Windows 日常使用 | 从 [GitHub Releases](https://github.com/aEboli/GPT-Image2-Studio/releases) 下载桌面安装包 | 独立 Electron 窗口，安装后不需要另装 Node.js |
 | 本地试用或开发 | 使用 Node.js 20+ 运行源码 | 直接调试界面和服务端源码，管理本地文件并执行开发命令 |
 | 部署预览 | 使用 Vercel 部署仓库 | 获得浏览器访问地址；云端使用临时文件，长任务上线前要先做 Preview 验证 |
 
-Windows 日常使用优先选桌面安装包；不想写入安装记录时选择免安装 ZIP；需要开发或检查生成文件时选择源码运行。
+Windows 日常使用可选择源码运行，或使用兼容旧版的浏览器安装包，见 [Windows 浏览器安装包文档](./docs/windows-installer.md)。
 
 ### 图片转提示词并锁定风格
 
@@ -70,32 +68,13 @@ cmd /c npm start
 
 Windows 用户也可以双击 `launch-studio.cmd` 启动，使用 `stop-studio-services.cmd` 停止 `3600-3606` 端口上的本项目服务。
 
-Windows 脚本入口（启动器、Native Messaging 安装/卸载、图片资源生成）需要 [PowerShell 7.4 或更高版本](https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-windows)，使用 `pwsh.exe`，不回退到 Windows PowerShell 5.1。安装后重新打开终端并用 `pwsh --version` 检查。可运行 `launch-studio.cmd -Port 3601`，或 `pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./launch-studio.ps1 -Root "项目目录" -Port 3601`。缺少运行时或脚本时入口明确失败；启动器只在健康检查成功后打开浏览器，超时返回非零。纯 Node/Electron 启动与停止服务 CMD 不依赖 PowerShell 7。
+Windows 脚本入口（启动器、Native Messaging 安装/卸载、图片资源生成）需要 [PowerShell 7.4 或更高版本](https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-windows)，使用 `pwsh.exe`，不回退到 Windows PowerShell 5.1。安装后重新打开终端并用 `pwsh --version` 检查。可运行 `launch-studio.cmd -Port 3601`，或 `pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./launch-studio.ps1 -Root "项目目录" -Port 3601`。缺少运行时或脚本时入口明确失败；启动器只在健康检查成功后打开浏览器，超时返回非零。纯 Node 启动与停止服务 CMD 不依赖 PowerShell 7。
 
 维护者可用 `pwsh -NoLogo -NoProfile -File ./scripts/generate-portrait-accessory-color-assets.ps1` 生成配件 PNG；该脚本使用 System.Drawing，仅支持 Windows，输出目录必须已存在，可从任意当前目录运行。
 
-### 方式二：Windows 桌面程序（推荐）
+### 方式二：Windows 浏览器安装包（兼容旧版）
 
-从包含桌面产物的 [GitHub Releases](https://github.com/aEboli/GPT-Image2-Studio/releases) 下载：
-
-```text
-GPT-Image2-Studio-Desktop-Setup-v0.2.116-x64.exe
-```
-
-安装完成后通过桌面或开始菜单中的 `GPT-Image2-Studio` 启动。程序会在独立窗口中运行，内置服务使用动态回环端口，关闭窗口后不会遗留后台服务。无需另行安装 Node.js，完整说明见 [Windows 桌面程序文档](./docs/windows-desktop.md)。
-
-如果不想安装，可下载同一 Release 中的 `GPT-Image2-Studio-Portable-v0.2.116-x64.zip`，完整解压后直接运行压缩包根目录的 `GPT-Image2-Studio.exe`。便携版不创建安装项或卸载记录，运行时请保持解压后的文件结构完整。
-
-桌面开发使用 Electron `43`，要求 Node.js `22.12` 或更高版本；普通 `npm start` 服务仍支持 Node.js `20+`。
-
-```powershell
-cmd /c npm ci
-cmd /c npm run desktop
-```
-
-### 方式三：Windows 浏览器安装包（兼容旧版）
-
-旧版浏览器安装流程仍保留本地构建说明，但 `v0.2.116` GitHub Release 不附带 IExpress 兼容安装包。请优先使用上面的 Windows 桌面安装包或免安装 ZIP；只有需要自行构建兼容流程时，再参考 [Windows 浏览器安装包文档](./docs/windows-installer.md)。
+旧版浏览器安装流程仍保留本地构建说明，但 `v0.2.116` GitHub Release 不附带 IExpress 兼容安装包；需要自行构建兼容流程时，参考 [Windows 浏览器安装包文档](./docs/windows-installer.md)。
 
 ## 配置说明
 
@@ -115,8 +94,7 @@ cmd /c npm run desktop
 
 #### 第 2 步：打开配置面板
 
-- 源码运行：执行 `cmd /c npm start`，浏览器打开 `http://127.0.0.1:3600`。
-- 桌面程序：直接启动 `GPT-Image2-Studio`，内置服务使用动态回环端口，不需要手动输入地址。
+- 执行 `cmd /c npm start`，浏览器打开 `http://127.0.0.1:3600`。
 - 点右上角的**配置**按钮，或顶部导航的**配置 → 配置 API**，面板顶部即可选择配置区。
 - 保存成功之前，右上角状态一直显示「配置未保存」。
 
@@ -222,7 +200,7 @@ API Key：<xAI 或兼容服务方提供的 Key>
 | 路由模式生图失败，但文本类调用正常 | 该服务不支持 Responses 的 `image_generation` 工具 | 改用直连模式，生图组后缀选 `images/generations` |
 | 提示需要令牌或远程访问认证 | 正在通过非回环地址访问本地服务 | 见下方「局域网访问与请求令牌」 |
 
-配置保存在本机：本地 Node 服务写入 `.local/config.json`，桌面程序写入 Electron 应用数据目录，云端部署由浏览器侧保存。不要在公共设备上保留密钥。
+配置保存在本机：本地 Node 服务写入 `.local/config.json`，云端部署由浏览器侧保存。不要在公共设备上保留密钥。
 
 ### 在界面中配置 API
 
@@ -449,12 +427,11 @@ GPT 路由模式和直连模式共享以下明确像素候选，第一档就是�
 
 GPT-Image2-Studio 面向个人创作者、电商运营、设计师和内容团队。它不是单一的生图表单，而是一套围绕参考素材、创作计划、生成队列、失败重试、历史记录和本地输出目录组织的工作台。
 
-项目提供三种主要运行形态：
+项目提供两种主要运行形态：
 
 | 运行方式 | 适合场景 | 数据特点 |
 | --- | --- | --- |
 | 本地 Node.js | 日常创作、完整本地工作流 | 配置、历史和输出默认保存在本机，功能最完整 |
-| Windows 桌面程序 | 需要独立窗口、任务栏和标准安装卸载的 Windows 用户 | Electron 内置运行时，动态回环端口，关窗即停止服务 |
 | Windows 浏览器安装包 | 需要保留旧版浏览器启动方式的 Windows 用户 | 内置 `node.exe`，安装后通过快捷方式打开默认浏览器 |
 
 仓库还包含 `vercel.json`。Vercel 环境使用临时目录，不能当作本地持久化存储；部署前应在 Preview 环境验证长任务、SSE 和文件生命周期。
@@ -577,7 +554,7 @@ GPT-Image2-Studio 面向个人创作者、电商运营、设计师和内容团�
 
 在“套图记录”勾选一套或多套记录后，进入“temuexcel导出工作台”并切换到“批量快速导出”，即可生成基于项目内置标准模板的 `.xlsx`。每个 SKU 独占一行；已有的公网 HTTPS 图片链接会直接写入模板，本地输出图片可选使用 Cloudinary unsigned upload 转成 `secure_url`。`cloudName` 与 `uploadPreset` 不是 API Secret，应用不会收集或保存 Cloudinary API Key、API Secret、签名、Authorization 或 Cookie。
 
-这项能力只在本地 Node.js 或 Windows 桌面运行时可用，不会自动登录、导入或发布到 Temu。缺少 Listing、价格、尺寸、重量、库存、产地或公网图片时，导出的工作簿会保留空单元格，并在“导出问题”工作表列出待补全项目；上传前仍需人工核对模板和 Temu 的实际校验结果。Cloudinary 远端资源的配额、生命周期和删除由 Cloudinary 账户自行管理。
+这项能力只在本地 Node.js 运行时可用，不会自动登录、导入或发布到 Temu。缺少 Listing、价格、尺寸、重量、库存、产地或公网图片时，导出的工作簿会保留空单元格，并在“导出问题”工作表列出待补全项目；上传前仍需人工核对模板和 Temu 的实际校验结果。Cloudinary 远端资源的配额、生命周期和删除由 Cloudinary 账户自行管理。
 
 ### Temu 上品工作台
 
@@ -616,7 +593,7 @@ GPT-Image2-Studio 面向个人创作者、电商运营、设计师和内容团�
 
 ### Vercel
 
-仓库中的 `vercel.json` 为 `server.mjs` 配置了依赖包含范围和 `300` 秒函数时长，并在云端安装时使用 `npm ci --omit=dev`，避免把仅供桌面开发的 Electron/Electron Builder 带入 Serverless Function。可通过 Vercel 导入仓库或 CLI 创建 Preview 部署：
+仓库中的 `vercel.json` 为 `server.mjs` 配置了依赖包含范围和 `300` 秒函数时长，并在云端安装时使用 `npm ci --omit=dev`，避免把开发依赖带入 Serverless Function。可通过 Vercel 导入仓库或 CLI 创建 Preview 部署：
 
 ```powershell
 vercel deploy
@@ -629,27 +606,6 @@ vercel deploy --prod
 ```
 
 Vercel 运行时的输出和本地数据目录位于临时文件系统，实例回收后可能丢失。需要长期保存图片和历史时，优先使用本地运行，或为云端接入持久化存储。
-
-### 构建 Windows 桌面程序
-
-在 Windows x64 和 Node.js `22.12+` 环境运行：
-
-```powershell
-cmd /c npm ci
-node --test test/desktop-application.test.mjs
-cmd /c npm run test:desktop-smoke
-cmd /c npm run build:desktop
-```
-
-产物路径：
-
-```text
-artifacts/desktop/GPT-Image2-Studio-Desktop-Setup-v0.2.116-x64.exe
-artifacts/desktop/GPT-Image2-Studio-Portable-v0.2.116-x64.zip
-artifacts/desktop/win-unpacked/GPT-Image2-Studio.exe
-```
-
-桌面版使用 Electron 独立窗口和 Electron Builder NSIS 安装包。完整说明见 [Windows 桌面程序文档](./docs/windows-desktop.md)。
 
 ### 构建 Windows 浏览器安装包（兼容旧版）
 
@@ -695,8 +651,6 @@ YYYY-MM-DD-ppt\
 
 ```text
 GPT-Image2-Studio/
-|-- build/desktop/                # Windows 桌面应用图标资产
-|-- desktop/                     # Electron 主进程与桌面安全策略
 |-- docs/                         # 安装、设计和开发文档
 |-- examples/                     # API 请求与 SSE 示例
 |-- lib/                          # 服务端与前端共享逻辑
@@ -722,9 +676,6 @@ GPT-Image2-Studio/
 # 启动开发服务
 cmd /c npm run dev
 
-# 启动 Electron 桌面开发版
-cmd /c npm run desktop
-
 # 查看命令行生图帮助
 cmd /c npm run help
 
@@ -748,11 +699,9 @@ cmd /c npx --no-install openspec validate --all --strict
 git diff --check
 ```
 
-Windows 桌面与兼容安装包发布还应运行：
+兼容安装包发布还应运行：
 
 ```powershell
-cmd /c npm run test:desktop-smoke
-cmd /c npm run build:desktop
 cmd /c npm run build:installer
 ```
 
@@ -763,7 +712,7 @@ cmd /c npm run build:installer
 - 分别使用 `npm run release:major`、`npm run release:minor`、`npm run release:feature` 或 `npm run release:patch`，每次只改变一个层级，并通过 `--summary` 传入更新摘要。
 - Git tag 使用 `v<version>`，与 `package.json` 的版本一致。
 - Release 标题建议使用 `GPT-Image2-Studio v<version>`。
-- Release 应附带变更说明、验证结果、Windows 桌面安装包、免安装 ZIP；如仍分发兼容版，应明确区分三个文件的启动形态。
+- Release 应附带变更说明与验证结果；如仍分发兼容安装包，应说明其启动形态。
 - 正式发布提交与标签就绪后运行 `npm run check:release:strict`，确认工作树干净且标签与版本一致。
 
 ## 版本更新说明

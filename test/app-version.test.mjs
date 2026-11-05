@@ -10,7 +10,6 @@ const patchTargetRelativePaths = [
   "public/index.html",
   "README.md",
   "README.zh-CN.md",
-  "docs/windows-desktop.md",
   "docs/windows-installer.md",
 ];
 
@@ -39,11 +38,6 @@ async function createPatchReleaseFixture({ includeReleasesDirectory = true } = {
     "utf8",
   );
   await writeFile(join(fixtureRoot, "README.zh-CN.md"), '当前版本：`v1.2.003`\n', "utf8");
-  await writeFile(
-    join(fixtureRoot, "docs", "windows-desktop.md"),
-    '`GPT-Image2-Studio-Desktop-Setup-v1.2.003-x64.exe` 是桌面安装包。\n',
-    "utf8",
-  );
   await writeFile(
     join(fixtureRoot, "docs", "windows-installer.md"),
     '`GPT-Image2-Studio-Setup-v1.2.003.exe` 是兼容安装包。\n',
@@ -111,13 +105,12 @@ test("patch release increments exactly 0.0.001 and synchronizes maintained versi
   const result = await bumpPatchRelease({ rootDir: fixtureRoot, summary: "新增版本号显示。" });
   assert.deepEqual(result, { previousVersion: "1.2.003", version: "1.2.004", versionLabel: "v1.2.004" });
 
-  const [packageJson, packageLock, html, readme, chineseReadme, desktopDoc, installerDoc, releaseNote] = await Promise.all([
+  const [packageJson, packageLock, html, readme, chineseReadme, installerDoc, releaseNote] = await Promise.all([
     readFile(join(fixtureRoot, "package.json"), "utf8").then(JSON.parse),
     readFile(join(fixtureRoot, "package-lock.json"), "utf8").then(JSON.parse),
     readFile(join(fixtureRoot, "public", "index.html"), "utf8"),
     readFile(join(fixtureRoot, "README.md"), "utf8"),
     readFile(join(fixtureRoot, "README.zh-CN.md"), "utf8"),
-    readFile(join(fixtureRoot, "docs", "windows-desktop.md"), "utf8"),
     readFile(join(fixtureRoot, "docs", "windows-installer.md"), "utf8"),
     readFile(join(fixtureRoot, "docs", "releases", "v1.2.004.md"), "utf8"),
   ]);
@@ -125,7 +118,7 @@ test("patch release increments exactly 0.0.001 and synchronizes maintained versi
   assert.equal(packageJson.version, "1.2.004");
   assert.equal(packageLock.version, "1.2.004");
   assert.equal(packageLock.packages[""].version, "1.2.004");
-  for (const content of [html, chineseReadme, desktopDoc, installerDoc]) {
+  for (const content of [html, chineseReadme, installerDoc]) {
     assert.match(content, /v1\.2\.004/);
     assert.doesNotMatch(content, /v1\.2\.003/);
   }

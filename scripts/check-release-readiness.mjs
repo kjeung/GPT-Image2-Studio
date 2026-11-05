@@ -280,12 +280,6 @@ export async function checkReleaseReadiness({ rootDir = projectRootDir, strict =
       /^当前版本：\s*`(v[0-9A-Za-z.+-]+)`\s*$/gmu,
     ),
     requireVersionFact(
-      join(rootDir, "docs", "windows-desktop.md"),
-      "docs/windows-desktop.md",
-      versionLabel,
-      /^`GPT-Image2-Studio-Desktop-Setup-(v[0-9A-Za-z.+-]+)-x64\.exe`\s+是/gmu,
-    ),
-    requireVersionFact(
       join(rootDir, "docs", "windows-installer.md"),
       "docs/windows-installer.md",
       versionLabel,

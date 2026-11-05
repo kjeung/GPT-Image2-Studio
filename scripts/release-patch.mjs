@@ -25,10 +25,6 @@ const maintainedVersionFiles = [
     factPattern: /^当前版本：\s*`(v[0-9A-Za-z.+-]+)`\s*$/gmu,
   },
   {
-    relativePath: "docs/windows-desktop.md",
-    factPattern: /^`GPT-Image2-Studio-Desktop-Setup-(v[0-9A-Za-z.+-]+)-x64\.exe`\s+是/gmu,
-  },
-  {
     relativePath: "docs/windows-installer.md",
     factPattern: /^`GPT-Image2-Studio-Setup-(v[0-9A-Za-z.+-]+)\.exe`\s+是/gmu,
   },

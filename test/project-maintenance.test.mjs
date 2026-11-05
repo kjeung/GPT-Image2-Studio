@@ -57,11 +57,6 @@ test("release readiness detects consistent and inconsistent version facts", asyn
   await writeFile(join(fixtureRoot, "README.md"), "Current version: `v1.2.003`\n", "utf8");
   await writeFile(join(fixtureRoot, "README.zh-CN.md"), "当前版本：`v1.2.003`\n", "utf8");
   await writeFile(
-    join(fixtureRoot, "docs", "windows-desktop.md"),
-    "`GPT-Image2-Studio-Desktop-Setup-v1.2.003-x64.exe` 是桌面安装包。\n",
-    "utf8",
-  );
-  await writeFile(
     join(fixtureRoot, "docs", "windows-installer.md"),
     "`GPT-Image2-Studio-Setup-v1.2.003.exe` 是兼容安装包。\n",
     "utf8",
@@ -221,18 +216,6 @@ test("release readiness detects consistent and inconsistent version facts", asyn
   await writeFile(join(fixtureRoot, "README.zh-CN.md"), "当前版本：`v1.2.002`\n示例标签：v1.2.003\n", "utf8");
   await assert.rejects(checkReleaseReadiness({ rootDir: fixtureRoot }), /README\.zh-CN\.md.*v1\.2\.003/);
   await writeFile(join(fixtureRoot, "README.zh-CN.md"), "当前版本：`v1.2.003`\n", "utf8");
-  await writeFile(
-    join(fixtureRoot, "docs", "windows-desktop.md"),
-    "`GPT-Image2-Studio-Desktop-Setup-v1.2.002-x64.exe` 是桌面安装包。\n示例标签：v1.2.003\n",
-    "utf8",
-  );
-  await assert.rejects(checkReleaseReadiness({ rootDir: fixtureRoot }), /docs\/windows-desktop\.md.*v1\.2\.003/);
-
-  await writeFile(
-    join(fixtureRoot, "docs", "windows-desktop.md"),
-    "`GPT-Image2-Studio-Desktop-Setup-v1.2.003-x64.exe` 是桌面安装包。\n",
-    "utf8",
-  );
   await writeFile(
     join(fixtureRoot, "docs", "windows-installer.md"),
     "`GPT-Image2-Studio-Setup-v1.2.002.exe` 是兼容安装包。\n示例标签：v1.2.003\n",

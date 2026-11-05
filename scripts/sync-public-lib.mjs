@@ -1,4 +1,4 @@
-﻿import { copyFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -8,7 +8,7 @@ const sourceDir = join(rootDir, "lib");
 const publicLibDir = join(rootDir, "public", "lib");
 const nodeModulesDir = join(rootDir, "node_modules");
 
-/* public/ 是直接发给浏览器、并被打包进 Electron 的目录，拿不到 node_modules，
+/* public/ 是直接发给浏览器、并被安装包原样携带的目录，拿不到 node_modules，
    所以浏览器要用的第三方产物必须落一份到 public/lib/vendor/。
    走同一个 --check 校验，vendor 副本就不会悄悄偏离已锁定的依赖版本。 */
 export const PUBLIC_VENDOR_SYNC_TARGETS = [

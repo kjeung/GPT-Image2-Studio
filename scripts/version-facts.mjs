@@ -18,31 +18,14 @@ const VERSION_CAPTURE = "(\\d+\\.\\d+\\.\\d{1,3})";
 export const MAINTAINED_VERSION_FACT_TEMPLATES = [
   {
     relativePath: "README.md",
-    templates: [
-      "version-v{version}-2563eb.svg",
-      "GPT-Image2-Studio-Desktop-Setup-v{version}-x64.exe",
-      "GPT-Image2-Studio-Portable-v{version}-x64.zip",
-      "[v{version}](./docs/releases/v{version}.md)",
-      "`v{version}` GitHub Release",
-    ],
+    templates: ["[v{version}](./docs/releases/v{version}.md)", "`v{version}` GitHub Release"],
   },
   {
     relativePath: "README.zh-CN.md",
     templates: [
-      "version-v{version}-2563eb.svg",
-      "GPT-Image2-Studio-Desktop-Setup-v{version}-x64.exe",
-      "GPT-Image2-Studio-Portable-v{version}-x64.zip",
       "GPT-Image2-Studio-Setup-v{version}.exe",
       "[v{version}](./docs/releases/v{version}.md)",
       "`v{version}` GitHub Release",
-    ],
-  },
-  {
-    relativePath: "docs/windows-desktop.md",
-    templates: [
-      "GPT-Image2-Studio-Desktop-Setup-v{version}-x64.exe",
-      "GPT-Image2-Studio-Portable-v{version}-x64.zip",
-      "GPT-Image2-Studio-Setup-v{version}.exe",
     ],
   },
   {
