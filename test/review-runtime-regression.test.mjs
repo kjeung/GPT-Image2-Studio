@@ -146,9 +146,12 @@ test("failed history write releases the transaction for a subsequent append", as
   t.after(() => rm(rootDir, { recursive: true, force: true }));
   const store = createPromptAgentStore({ rootDir });
   await mkdir(join(rootDir, ".local"));
-  await writeFile(store.historyPath, "invalid JSON", "utf8");
+  // A directory where the history file belongs makes the write itself fail, which
+  // is the failure mode this test is about. A *damaged* history file no longer
+  // throws: lib/atomic-json-file.mjs quarantines it and reads it as empty.
+  await mkdir(store.historyPath);
   await assert.rejects(store.append({ id: "fails" }));
-  await rm(store.historyPath);
+  await rm(store.historyPath, { recursive: true, force: true });
   await store.append({ id: "recovers" });
   assert.equal((await store.list())[0].id, "recovers");
 });

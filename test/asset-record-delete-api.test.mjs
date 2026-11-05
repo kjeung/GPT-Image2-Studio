@@ -174,6 +174,11 @@ test("local asset deletion APIs support batches, legacy Gallery input, and stora
   assert.equal(await pathExists(pptAssets.assetDir), false);
   assert.equal(await pathExists(pptAssets.metadataDir), false);
 
+  // A damaged manifest no longer fails the request: lib/atomic-json-file.mjs
+  // quarantines it, so the set reads as not found and the bytes stay on disk.
   const corrupt = await postJson(baseUrl, "/api/article-illustration/sets/delete", { setIds: ["article-corrupt"] });
-  assert.equal(corrupt.response.status, 500);
+  assert.equal(corrupt.response.status, 200, JSON.stringify(corrupt.payload));
+  assert.deepEqual(corrupt.payload.notFoundSetIds, ["article-corrupt"]);
+  assert.deepEqual(corrupt.payload.deletedSetIds, []);
+  assert.equal(await pathExists(`${articleStore.manifestPath("article-corrupt")}.corrupt`), true);
 });
