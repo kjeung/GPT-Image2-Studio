@@ -265,6 +265,19 @@ git check-ref-format refs/tags/v0.2.116_fork.1   → OK
 所以"版本号看不出 fork，靠 tag 名 `fork-v0.2.117` 补足"这条**在 strict 模式下不成立**：要么让 tag 就叫 `v0.2.117`，要么改 strict 的检查逻辑。fork 标识只能靠 Release 标题/正文表达。
 
 **但"再挂一个别名 tag"这条是成立的**：同一提交上同时打 `v0.2.117` 与 `fork-v0.2.117`，`git tag --points-at HEAD` 两个都列出来，strict 只要求**包含** `v<version>`，多出来的 tag 不影响 —— 实测 `发布一致性检查通过：v0.2.117（严格模式）`。所以路线 1 不必放弃 fork 标识，可以 `v<version>` 供工具链 + `fork-v<version>` 供人读。
+### 8.7 落地结果（2026-11-06，`legacy-v0.2.116` `7422ae5`，已推 origin）
+
+维护者选了 **B：`0.3.000`**。实际执行与验证：
+
+- `npm run release:minor -- --summary "…"` → `0.3.000`，一次改动 6 个受维护文件 + 新建 `docs/releases/v0.3.000.md`。
+- 徽章**不在**模板里这件事是真的：升版后两份 README 的 shields 徽章仍写着 `v0.2.116`，`check:release` 依旧报绿。已在同一提交里把上游被 T1 连带删掉的 `version-v{version}-2563eb.svg` 模板恢复（两份 README 各一条），`test/version-facts.test.mjs` 补模板覆盖 / 陈旧徽章算漂移 / 升版跟随三段断言 + 夹具补徽章行；反例验证：把真实 README 徽章改回旧值，`check:release` 立刻报「README.md:5 出现 …v0.2.116…，应为 …v0.3.000…」。
+- 规格走 openspec 变更 `check-readme-version-badge`（已归档，`openspec/specs/project-maintenance` 更新为含徽章），`openspec validate --all --strict` 68/68。
+- 双 tag 同时打：`v0.3.000`（annotated，供 `check:release:strict`）+ `fork-v0.3.000`；`check:release:strict` **通过**。
+- 关卡：`npm run verify:ci` **八道全绿**（3078 例 0 失败 11 跳过、sync 139、release `v0.3.000`、openspec 68/68、空白与漂移全绿）。
+- 徽章实测 `HTTP 200`、渲染 `v0.3.000`（无连字符，不需 `--` 转义）。
+
+**遗留（事实，不阻塞）**：本仓库三位补零的约定（`formatVersion` 的 `padStart(3,"0")`）产出的 `0.2.020` / `0.3.000` 这类版本串**不是合法 semver**（规范禁止数字段前导零，`node-semver` 的 `valid()` 返回 `null`）。本仓库此前已有 `0.1.001`、`0.2.020`、`0.2.043`、`0.2.096` 四个同形版本，所以不是本次决策引入的问题；`npm ci --dry-run` 与 `check:release` 均接受它（仓库自己的 `VERSION_PATTERN` 只要求一到三位数字）。要真正合规只能放弃三位补零、改成 `0.3.0`，那会连带改 `VERSION_PATTERN`、`formatVersion` 与 openspec 版本规格 —— 属另一起工单，不在本图目的地内。
+
 
 ### 8.5 `v0.2.116` 这个 tag 的冲突是真实存在的
 
