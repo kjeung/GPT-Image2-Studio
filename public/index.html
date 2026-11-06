@@ -391,6 +391,12 @@
                     ></textarea>
                     <span class="field-counter"><span id="promptCounter">0 字</span></span>
                   </label>
+
+                  <label class="compact-field" data-prompt-mode-block>
+                    <span>产品标题（必填）</span>
+                    <textarea id="productTitleInput" rows="3" placeholder="填写当前产品标题，用于结合标题分析核心卖点" aria-describedby="productTitleHint"></textarea>
+                    <small id="productTitleHint">提示词勾选“结合标题分析”后，每次生成使用此处的最新标题。</small>
+                  </label>
                 </div>
 
                 <div class="prompt-enhance-panel" data-prompt-mode-block>
@@ -531,6 +537,8 @@
                       aria-disabled="true"
                       data-tooltip="添加到参考图；也可拖动预览图片到参考图区域"
                     >添加到参考图</button>
+                    <button class="toolbar-button hidden" id="previewApplyConfigButton" type="button" disabled title="把这张图的提示词与参数载回生成区域">载入配置</button>
+                    <button class="toolbar-button hidden" id="previewRetryButton" type="button" disabled title="用同样的提示词与参数重新提交">重试</button>
                     <a class="toolbar-button" id="previewDownloadButton" href="#" download data-ui-i18n="download">下载</a>
                     <button class="toolbar-button" id="previewLightboxButton" type="button" data-ui-i18n="view">查看</button>
                     <button class="toolbar-button danger" id="previewDeleteButton" type="button" data-ui-i18n="delete">删除</button>
@@ -2461,6 +2469,10 @@
                   <button class="header-button" id="refreshGalleryButton" type="button" aria-label="刷新瀑布画廊">刷新</button>
                   <button class="toolbar-button danger" id="galleryDeleteCurrentButton" type="button" disabled>删除当前</button>
                   <button class="toolbar-button danger" id="galleryDeleteSelectedButton" type="button" disabled>删除选中</button>
+                  <button class="toolbar-button gallery-download-button" id="galleryDownloadSelectedButton" type="button" aria-label="下载勾选的画廊图片" disabled>下载所选</button>
+                  <button class="toolbar-button hidden" id="gallerySelectAllButton" type="button">全选</button>
+                  <button class="toolbar-button hidden" id="gallerySelectClearButton" type="button">取消选择</button>
+                  <span class="gallery-selection-count hidden" id="gallerySelectionCount">已选 0 张</span>
                 </div>
               </div>
               <nav class="asset-view-nav" aria-label="资产视图">
@@ -3722,7 +3734,10 @@
             <h2>提示词模板库</h2>
             <p class="prompt-template-subtitle">520 组图片与提示词逐条配对，按场景、风格和主体筛选。</p>
           </div>
-          <button class="toolbar-button" id="closePromptTemplateButton" type="button">关闭</button>
+          <div class="prompt-template-head-actions">
+            <button class="toolbar-button strong" id="sharePromptKitButton" type="button" title="导出提示词与套图模板 TXT 文件，不包含 API 密钥和图片">导出分享 TXT</button>
+            <button class="toolbar-button" id="closePromptTemplateButton" type="button">关闭</button>
+          </div>
         </div>
 
         <div class="prompt-template-toolbar" role="toolbar" aria-label="模板库筛选与视图">
@@ -3743,6 +3758,44 @@
           </div>
 <button class="prompt-template-reset" id="promptTemplateLibraryReset" type="button">重置</button>
         </div>
+
+        <section class="prompt-kit-code-section" aria-label="提示词配置口令">
+          <div class="prompt-kit-code-copy">
+            <strong>导入分享口令</strong>
+            <span>推荐直接发送 TXT 文件，再点击“导入 TXT”；也可以粘贴完整口令。</span>
+          </div>
+          <div class="prompt-kit-code-controls">
+            <textarea id="promptKitCodeInput" rows="2" maxlength="250000" spellcheck="false" placeholder="粘贴 PROMPT-KIT.V1... 分享口令" aria-label="提示词配置分享口令"></textarea>
+            <button class="toolbar-button strong" id="importPromptKitCodeButton" type="button">导入口令</button>
+          </div>
+          <input id="promptKitFileInput" type="file" accept=".txt,text/plain" hidden>
+          <button class="toolbar-button" id="importPromptKitFileButton" type="button">导入 TXT</button>
+          <p class="config-note" id="promptKitCodeFeedback"></p>
+        </section>
+
+        <section class="prompt-set-section" aria-label="套图模板">
+          <div class="prompt-set-heading">
+            <div>
+              <h3>套图模板</h3>
+              <p>勾选下方提示词并保存，之后可一次提交整套图片。</p>
+            </div>
+            <span class="prompt-set-selection-count" id="promptSetSelectionCount">已选 0 张</span>
+          </div>
+
+          <div class="prompt-set-list" id="promptSetList"></div>
+
+          <div class="prompt-set-editor">
+            <input id="promptSetNameInput" type="text" maxlength="40" placeholder="例如：亚马逊六图套装" aria-label="套图模板名称" />
+            <div class="prompt-set-actions">
+              <button class="toolbar-button" id="selectAllPromptTemplatesButton" type="button">全选提示词</button>
+              <button class="toolbar-button" id="clearPromptTemplateSelectionButton" type="button">清空选择</button>
+              <button class="toolbar-button" id="newPromptSetButton" type="button">新建套图</button>
+              <button class="toolbar-button strong" id="savePromptSetButton" type="button">保存套图</button>
+              <button class="generate-button prompt-set-generate-button" id="generatePromptSetButton" type="button">生成所选套图</button>
+            </div>
+          </div>
+          <p class="config-note prompt-set-feedback" id="promptSetFeedback"></p>
+        </section>
 
         <div class="prompt-template-body">
           <aside class="prompt-template-sidebar" aria-label="模板分类">
@@ -3775,6 +3828,11 @@
               </div>
               <button class="mini-action" id="newPromptTemplateButton" type="button">新建</button>
             </div>
+            <div class="prompt-template-personal-toolbar">
+              <button class="toolbar-button" id="promptTemplateBatchToggleButton" type="button">批量管理</button>
+              <button class="toolbar-button hidden" id="promptTemplateBatchSelectAllButton" type="button">全选</button>
+              <button class="toolbar-button danger hidden" id="promptTemplateBatchDeleteButton" type="button" disabled>删除已选</button>
+            </div>
             <div class="prompt-template-list" id="promptTemplateList"></div>
 
             <form class="prompt-template-form" id="promptTemplateForm">
@@ -3786,6 +3844,16 @@
               <label class="compact-field">
                 <span>内容</span>
                 <textarea id="promptTemplateTextInput" rows="8" maxlength="3000" placeholder="写入模板提示词"></textarea>
+              </label>
+
+              <label class="prompt-template-params-toggle">
+                <input id="promptTemplateAnalyzeTitleToggle" type="checkbox">
+                <span>此提示词结合标题分析（每次生成使用当前产品标题）</span>
+              </label>
+
+              <label class="prompt-template-params-toggle">
+                <input id="promptTemplateSaveParamsToggle" type="checkbox">
+                <span>连同当前参数一起保存（比例 / 分辨率 / 输出格式 / 思考等级）</span>
               </label>
 
               <div class="prompt-template-actions">

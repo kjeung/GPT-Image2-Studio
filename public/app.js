@@ -128,6 +128,9 @@ import { flattenPromptTemplateLibrary, getPromptTemplateLibraryCategory, getProm
 import { DEFAULT_GENERATION_CONCURRENCY, DEFAULT_GENERATION_START_DELAY_MS, DEFAULT_REASONING_EFFORT, REASONING_EFFORT_OPTIONS, MAX_PROMPT_QUEUE_SIZE } from "/lib/studio-constants.mjs?v=20261030-reasoning-effort-1";
 import { GENERATION_START_DELAY_FIELD, normalizeGenerationStartDelayMs } from "/lib/generation-start-delay.mjs?v=20260829-generation-schedule-1";
 import { GENERATION_CONCURRENCY_FIELD, normalizeGenerationConcurrency } from "/lib/generation-concurrency.mjs?v=20260829-generation-schedule-1";
+import { prepareClipboardImageFiles } from "/lib/clipboard-image-files.mjs?v=20261106-stable-paste-1";
+import { decodePromptKitSharePayload, encodePromptKitSharePayload, formatPromptKitShareCode, mergePromptKitShareData, movePromptTemplateInList, parsePromptKitShareCode, removePromptTemplatesFromLibrary } from "/lib/prompt-kit-share.mjs?v=20261106-prompt-kit-share-1";
+import { areAllItemsSelected, buildTitleAwarePrompt, canApplyItemConfig, isRetryableStudioJob, normalizePromptSet, normalizePromptTemplateParams, removePromptTemplateFromSets, resolvePromptSetTemplates, saveGalleryItemsIndividually, selectGalleryItemsByFilenames, toggleSelectionValue } from "/lib/studio-enhancements.mjs?v=20261106-studio-enhancements-1";
 const SURPRISE_PROMPTS = [
   {
     name: "证件照",
@@ -181,8 +184,21 @@ const REASONING_LABELS = {
 };
 const DEFAULT_LIMITS = { maxParallelTasksPerSession: 15, maxReferenceImages: 15, maxCreationReferenceImages: 15, maxPortraitPersonReferenceImages: 3, maxPortraitActionReferenceImages: 3, maxPortraitAccessoryReferenceImages: 9 }; const PROMPT_FILMSTRIP_INITIAL_HISTORY_LIMIT = 10; const PROMPT_FILMSTRIP_MAX_HISTORY_LIMIT = 50; const PROMPT_FILMSTRIP_JOB_LIMIT = MAX_PROMPT_QUEUE_SIZE;
 const CREATION_IMAGE_COUNT_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
-const DEFAULT_PROMPT_ENHANCE_TEXT = "Quality only; original prompt and references take priority. 8K ultra-HD look, clear subject, precise focus, natural edges, style-faithful detail, smooth gradients, clean tonal separation. Reduce unintended blur, aliasing, banding, compression artifacts, oversharpening, repeated details. Preserve subject, identity, count, composition, proportions, text, style, color, lighting, materials, intentional blur/grain/pixel art/minimalism. Add no objects, details or quality labels. Size follows settings."; function buildPromptModePrompt() { const prompt = refs.promptInput.value.trim(); if (!state.promptEnhanceEnabled) { return prompt; } const enhanceText = String(refs.promptEnhanceInput?.value || "").trim(); return enhanceText ? `${prompt}${enhanceText.startsWith(",") ? "" : "\n\n"}${enhanceText}` : prompt; } function syncPromptEnhanceMode() { refs.promptEnhanceToggle.classList.toggle("is-active", state.promptEnhanceEnabled); refs.promptEnhanceToggle.setAttribute("aria-checked", String(state.promptEnhanceEnabled)); refs.promptEnhanceToggle.querySelector("small").textContent = getUiLanguageText(state.promptEnhanceEnabled ? "promptEnhanceOn" : "promptEnhanceOff"); refs.promptEnhanceField.classList.toggle("hidden", !state.promptEnhanceEnabled); scheduleStudioPromptFillSync(); } function togglePromptEnhanceMode() { state.promptEnhanceEnabled = !state.promptEnhanceEnabled; syncPromptEnhanceMode(); if (state.promptEnhanceEnabled) { refs.promptEnhanceInput.focus(); } }
+const DEFAULT_PROMPT_ENHANCE_TEXT = "Quality only; original prompt and references take priority. 8K ultra-HD look, clear subject, precise focus, natural edges, style-faithful detail, smooth gradients, clean tonal separation. Reduce unintended blur, aliasing, banding, compression artifacts, oversharpening, repeated details. Preserve subject, identity, count, composition, proportions, text, style, color, lighting, materials, intentional blur/grain/pixel art/minimalism. Add no objects, details or quality labels. Size follows settings."; function buildPromptModePrompt() {
+  const rawPrompt = refs.promptInput.value.trim();
+  // 勾了「结合标题分析」才把产品标题带进 prompt；没勾时行为与上游完全一致。
+  // 标题为空时不抛错（buildTitleAwarePrompt 会），退回原始 prompt，由套图入口
+  // 单独给出「请先填写产品标题」的提示，不让一次漏填把普通生成也堵死。
+  const title = String(refs.productTitleInput?.value || "").trim();
+  const prompt = state.promptAnalyzeTitle && title
+    ? buildTitleAwarePrompt(rawPrompt, title, true)
+    : rawPrompt;
+  if (!state.promptEnhanceEnabled) { return prompt; }
+  const enhanceText = String(refs.promptEnhanceInput?.value || "").trim();
+  return enhanceText ? `${prompt}${enhanceText.startsWith(",") ? "" : "\n\n"}${enhanceText}` : prompt;
+} function syncPromptEnhanceMode() { refs.promptEnhanceToggle.classList.toggle("is-active", state.promptEnhanceEnabled); refs.promptEnhanceToggle.setAttribute("aria-checked", String(state.promptEnhanceEnabled)); refs.promptEnhanceToggle.querySelector("small").textContent = getUiLanguageText(state.promptEnhanceEnabled ? "promptEnhanceOn" : "promptEnhanceOff"); refs.promptEnhanceField.classList.toggle("hidden", !state.promptEnhanceEnabled); scheduleStudioPromptFillSync(); } function togglePromptEnhanceMode() { state.promptEnhanceEnabled = !state.promptEnhanceEnabled; syncPromptEnhanceMode(); if (state.promptEnhanceEnabled) { refs.promptEnhanceInput.focus(); } }
 const PROMPT_TEMPLATE_STORAGE_KEY = "image-studio-prompt-templates-v2";
+const PROMPT_SET_STORAGE_KEY = "image-studio-prompt-sets-v1";
 const PROMPT_TEMPLATE_DISMISSED_HISTORY_KEY = "image-studio-prompt-template-dismissed-history-v1";
 const PROMPT_TEMPLATE_LIBRARY_ASSET_VERSION = "20261024-prompt-library-json-lines-1";
 let promptTemplateLibrarySearchTimer = 0;
@@ -903,6 +919,7 @@ const state = {
   gallery: [],
   galleryCheckedFilenames: [],
   gallerySelectionMode: false,
+  galleryBatchDownloading: false,
   galleryCurrentFilename: "",
   galleryDeleteFeedback: "",
   galleryLoading: true,
@@ -1037,6 +1054,13 @@ const state = {
   },
   referencePreviewItem: null,
   selectedPromptTemplateId: "",
+  promptSets: [],
+  selectedPromptSetId: "",
+  promptSetDraftTemplateIds: new Set(),
+  promptSetGenerating: false,
+  promptAnalyzeTitle: false,
+  promptTemplateBatchMode: false,
+  promptTemplateCheckedIds: [],
   selectedPreviewKey: "",
   studioMode: "prompt",
   styleTransfer: {
@@ -1400,6 +1424,10 @@ const refs = {
   galleryDateInput: document.querySelector("#galleryDateInput"),
   galleryDeleteCurrentButton: document.querySelector("#galleryDeleteCurrentButton"),
   galleryDeleteSelectedButton: document.querySelector("#galleryDeleteSelectedButton"),
+  galleryDownloadSelectedButton: document.querySelector("#galleryDownloadSelectedButton"),
+  gallerySelectAllButton: document.querySelector("#gallerySelectAllButton"),
+  gallerySelectClearButton: document.querySelector("#gallerySelectClearButton"),
+  gallerySelectionCount: document.querySelector("#gallerySelectionCount"),
   galleryEmpty: document.querySelector("#galleryEmpty"),
   galleryFilters: document.querySelector("#galleryFilters"),
   galleryHelperText: document.querySelector("#galleryHelperText"),
@@ -1476,6 +1504,8 @@ const refs = {
   previewId: document.querySelector("#previewId"),
   previewImage: document.querySelector("#previewImage"),
   previewAddReferenceButton: document.querySelector("#previewAddReferenceButton"),
+  previewApplyConfigButton: document.querySelector("#previewApplyConfigButton"),
+  previewRetryButton: document.querySelector("#previewRetryButton"),
   previewLightboxButton: document.querySelector("#previewLightboxButton"),
   previewModel: document.querySelector("#previewModel"),
   previewPlaceholder: document.querySelector("#previewPlaceholder"),
@@ -1573,6 +1603,27 @@ const refs = {
   promptTemplateNameInput: document.querySelector("#promptTemplateNameInput"),
   promptTemplatePopover: document.querySelector("#promptTemplatePopover"),
   promptTemplateTextInput: document.querySelector("#promptTemplateTextInput"),
+  promptTemplateAnalyzeTitleToggle: document.querySelector("#promptTemplateAnalyzeTitleToggle"),
+  promptTemplateSaveParamsToggle: document.querySelector("#promptTemplateSaveParamsToggle"),
+  promptTemplateBatchToggleButton: document.querySelector("#promptTemplateBatchToggleButton"),
+  promptTemplateBatchSelectAllButton: document.querySelector("#promptTemplateBatchSelectAllButton"),
+  promptTemplateBatchDeleteButton: document.querySelector("#promptTemplateBatchDeleteButton"),
+  promptKitCodeInput: document.querySelector("#promptKitCodeInput"),
+  promptKitCodeFeedback: document.querySelector("#promptKitCodeFeedback"),
+  promptKitFileInput: document.querySelector("#promptKitFileInput"),
+  sharePromptKitButton: document.querySelector("#sharePromptKitButton"),
+  importPromptKitCodeButton: document.querySelector("#importPromptKitCodeButton"),
+  importPromptKitFileButton: document.querySelector("#importPromptKitFileButton"),
+  promptSetList: document.querySelector("#promptSetList"),
+  promptSetNameInput: document.querySelector("#promptSetNameInput"),
+  promptSetSelectionCount: document.querySelector("#promptSetSelectionCount"),
+  promptSetFeedback: document.querySelector("#promptSetFeedback"),
+  selectAllPromptTemplatesButton: document.querySelector("#selectAllPromptTemplatesButton"),
+  clearPromptTemplateSelectionButton: document.querySelector("#clearPromptTemplateSelectionButton"),
+  newPromptSetButton: document.querySelector("#newPromptSetButton"),
+  savePromptSetButton: document.querySelector("#savePromptSetButton"),
+  generatePromptSetButton: document.querySelector("#generatePromptSetButton"),
+  productTitleInput: document.querySelector("#productTitleInput"),
   ratioGrid: document.querySelector("#ratioGrid"),
   ratioInput: document.querySelector("#ratioInput"),
   ratioOrientationSummary: document.querySelector("#ratioOrientationSummary"),
@@ -2095,6 +2146,14 @@ async function downloadGalleryItem(item, imageElement) {
   }
   triggerBrowserImageDownload(blob, filename);
   return { ok: true, browserDownload: true, filename };
+}
+// Saves each checked image on its own instead of one zip the user has to unpack.
+// Each image follows the configured download folder or the browser fallback.
+async function batchSaveGalleryItems(items) {
+  const result = await saveGalleryItemsIndividually(items, {
+    downloadItem: (item) => downloadGalleryItem(item, null),
+  });
+  return { ...result, cancelled: false };
 }
 function isImageDownloadFilename(filename) {
   return /\.(?:avif|bmp|gif|jpe?g|png|svg|tiff?|webp)$/i.test(String(filename || "").trim());
@@ -7297,6 +7356,22 @@ function renderPreview() {
   refs.previewImage.title = canAddPreviewReference ? "拖动到参考图区域即可添加" : "";
   refs.previewLightboxButton.disabled = false;
   refs.previewDeleteButton.disabled = !item.filename;
+  syncPreviewRecoveryActions(item);
+}
+
+// 「载入配置」只把提示词与参数搬回生成区域，不提交；「重试」直接重投同样的请求。
+// 两个按钮各自独立判准入，避免把一个失败任务的参数悄悄套到别的图上。
+function syncPreviewRecoveryActions(item) {
+  const failed = Boolean(item && normalizeGenerationTaskStatus(item.status) === "error");
+  if (refs.previewRetryButton) {
+    refs.previewRetryButton.classList.toggle("hidden", !failed);
+    refs.previewRetryButton.disabled = !failed;
+  }
+  if (refs.previewApplyConfigButton) {
+    const canApply = Boolean(item) && canApplyItemConfig(item);
+    refs.previewApplyConfigButton.classList.toggle("hidden", !canApply);
+    refs.previewApplyConfigButton.disabled = !canApply;
+  }
 }
 
 function syncPromptFilmstripBaseline() {
@@ -7999,6 +8074,57 @@ function createGallerySection(section, columnCount) {
   return wrapper;
 }
 
+function toggleAllVisibleGallerySelection() {
+  const visible = getVisibleGalleryItems();
+  const shouldDeselect = areAllItemsSelected(visible, new Set(state.galleryCheckedFilenames));
+  const selected = new Set(shouldDeselect ? [] : state.galleryCheckedFilenames);
+  visible.forEach((item) => {
+    const filename = String(item?.filename || "");
+    if (!filename) {
+      return;
+    }
+    selected.add(filename);
+  });
+  state.galleryCheckedFilenames = [...selected];
+  renderGalleryView();
+}
+
+// Downloads the checked images one by one; the selection also feeds 「删除选中」,
+// so this must never clear or mutate the checked set.
+async function batchDownloadSelectedGalleryItems() {
+  if (state.galleryBatchDownloading) {
+    return;
+  }
+  const items = selectGalleryItemsByFilenames(state.gallery, [...state.galleryCheckedFilenames]);
+  if (items.length === 0) {
+    showError("请先勾选要下载的图片。");
+    return;
+  }
+
+  if (items.length === 1) {
+    try {
+      await downloadGalleryItem(items[0], null);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  state.galleryBatchDownloading = true;
+  renderGalleryView();
+  try {
+    const result = await batchSaveGalleryItems(items);
+    if (!result.cancelled && result.failed > 0) {
+      showError(`已保存 ${result.saved} 张，${result.failed} 张无法读取。`);
+    }
+  } catch (error) {
+    showError(error instanceof Error ? error.message : String(error));
+  } finally {
+    state.galleryBatchDownloading = false;
+    renderGalleryView();
+  }
+}
+
 function renderGalleryView() {
   const filters = getGalleryFilterSnapshot();
   const visibleItems = getVisibleGalleryItems();
@@ -8040,6 +8166,24 @@ function renderGalleryView() {
   refs.galleryDeleteCurrentButton.disabled = deleteBlocked || !visibleFilenames.has(state.galleryCurrentFilename);
   refs.galleryDeleteSelectedButton.disabled = deleteBlocked || !state.gallerySelectionMode || checkedCount === 0;
   refs.galleryDeleteSelectedButton.textContent = checkedCount > 0 ? `删除选中 (${checkedCount})` : "删除选中";
+  // 「下载所选」与「删除选中」共用同一次勾选，但两个动作必须一眼可分：下载按钮不带 danger 样式，
+  // 文案里不出现「删除」，且下载进行中只禁用它自己，不影响删除。
+  if (refs.galleryDownloadSelectedButton) {
+    refs.galleryDownloadSelectedButton.disabled = checkedCount === 0 || state.galleryBatchDownloading;
+    refs.galleryDownloadSelectedButton.textContent = state.galleryBatchDownloading
+      ? "保存中..."
+      : `下载所选 (${checkedCount})`;
+  }
+  if (refs.gallerySelectionCount) {
+    refs.gallerySelectionCount.textContent = `已选 ${checkedCount} 张`;
+    refs.gallerySelectionCount.classList.toggle("hidden", !state.gallerySelectionMode);
+  }
+  [refs.gallerySelectAllButton, refs.gallerySelectClearButton].forEach((el) => {
+    if (el) {
+      el.classList.toggle("hidden", !state.gallerySelectionMode);
+      el.disabled = state.galleryBatchDownloading;
+    }
+  });
   if (refs.galleryActionFeedback && refs.galleryActionFeedback.textContent !== state.galleryDeleteFeedback) {
     refs.galleryActionFeedback.textContent = state.galleryDeleteFeedback;
   }
@@ -8154,6 +8298,36 @@ function getCurrentGalleryPageSections() {
     return getSearchGalleryPagination(allSections).sections;
   }
   return paginateGallerySections(allSections, state.galleryHistoryPage).sections;
+}
+
+function applyStudioParamsFromItem(item) {
+  if (!item) {
+    return;
+  }
+  const prompt = String(item.prompt || "").trim();
+  if (prompt) {
+    refs.promptInput.value = prompt;
+    updatePromptCounter();
+  }
+  applyPromptTemplateParams({
+    ratio: item.ratio,
+    size: item.sizeSetting || item.size,
+    format: item.format,
+    reasoningEffort: item.reasoningEffort,
+  });
+}
+
+// 载入配置不重投请求：它只把「这张图是怎么来的」还原到生成区域，让用户改完再提交。
+function applyItemConfigToStudio(item) {
+  if (!item) {
+    return;
+  }
+  if (state.studioMode === "style-transfer") {
+    setStudioGenerationMode("prompt");
+  }
+  setActiveView("studio");
+  applyStudioParamsFromItem(item);
+  refs.promptInput.focus();
 }
 
 function renderStudio() {
@@ -8303,6 +8477,10 @@ function normalizePromptTemplate(template, index = 0) {
     id: String(template?.id || createPromptTemplateId()),
     name: getPromptAgentTemplateDisplayName(template, parsedPromptJson, index),
     prompt,
+    // 分享码会带上每个模板的生成参数与「结合标题分析」开关；只保留三个字段会让
+    // 导入方看到模板但丢了参数与开关，所以在这里一并归一化保存。
+    params: normalizePromptTemplateParams(template?.params),
+    analyzeTitle: template?.analyzeTitle === true,
   };
 }
 
@@ -8711,6 +8889,14 @@ function selectPromptTemplate(templateId) {
   state.selectedPromptTemplateId = template?.id || "";
   refs.promptTemplateNameInput.value = template?.name || "";
   refs.promptTemplateTextInput.value = template?.prompt || "";
+  // 编辑已有模板时把它的两个开关回填，否则用户看不到该模板是否带参数/标题分析，
+  // 保存时会把已存的 params 与 analyzeTitle 静默清掉。
+  if (refs.promptTemplateAnalyzeTitleToggle) {
+    refs.promptTemplateAnalyzeTitleToggle.checked = template?.analyzeTitle === true;
+  }
+  if (refs.promptTemplateSaveParamsToggle) {
+    refs.promptTemplateSaveParamsToggle.checked = Boolean(template?.params);
+  }
   renderPromptTemplates();
   syncPromptTemplateTextareaHeight();
 }
@@ -8732,6 +8918,8 @@ function syncPromptTemplateEditorMode() {
 function renderPromptTemplates() {
   renderPromptTemplateLibrary();
   syncPromptTemplateEditorMode();
+  renderPromptSets();
+  syncPromptTemplateBatchToolbar();
   refs.promptTemplateList.innerHTML = "";
 
   if (state.promptTemplates.length === 0) {
@@ -8776,6 +8964,39 @@ function renderPromptTemplates() {
         setPromptTemplateFeedback("");
       });
       row.appendChild(titleButton);
+
+      // 套图把勾选与「插入模板」分成两个独立动作：点复选框只改套组草稿，
+      // 不会把模板内容写进当前提示词，避免正在编辑的 prompt 被覆盖。
+      const draftLabel = document.createElement("label");
+      draftLabel.className = "prompt-template-set-check";
+      draftLabel.title = `把「${template.name}」加入当前套图`;
+      const draftCheckbox = document.createElement("input");
+      draftCheckbox.type = "checkbox";
+      draftCheckbox.checked = state.promptSetDraftTemplateIds.has(template.id);
+      draftCheckbox.setAttribute("aria-label", `加入套图：${template.name}`);
+      draftCheckbox.dataset.promptSetTemplateId = template.id;
+      draftCheckbox.addEventListener("change", () => {
+        togglePromptTemplateDraftSelection(template.id);
+      });
+      draftLabel.appendChild(draftCheckbox);
+      row.appendChild(draftLabel);
+
+      if (state.promptTemplateBatchMode) {
+        const batchCheckbox = document.createElement("input");
+        batchCheckbox.type = "checkbox";
+        batchCheckbox.checked = state.promptTemplateCheckedIds.includes(template.id);
+        batchCheckbox.setAttribute("aria-label", `批量选择：${template.name}`);
+        batchCheckbox.dataset.promptTemplateCheckedId = template.id;
+        batchCheckbox.addEventListener("change", () => {
+          state.promptTemplateCheckedIds = batchCheckbox.checked
+            ? [...new Set([...state.promptTemplateCheckedIds, template.id])]
+            : state.promptTemplateCheckedIds.filter((id) => id !== template.id);
+          if (refs.promptTemplateBatchDeleteButton) {
+            refs.promptTemplateBatchDeleteButton.disabled = state.promptTemplateCheckedIds.length === 0;
+          }
+        });
+        row.appendChild(batchCheckbox);
+      }
 
       const actions = document.createElement("div");
       actions.className = "prompt-template-row-actions";
@@ -8833,14 +9054,20 @@ function savePromptTemplate(event) {
 
   const existing = getSelectedPromptTemplate();
   const name = refs.promptTemplateNameInput.value.trim() || existing?.name || `模板 ${state.promptTemplates.length + 1}`;
+  const analyzeTitle = refs.promptTemplateAnalyzeTitleToggle?.checked === true;
+  const params = refs.promptTemplateSaveParamsToggle?.checked === true ? captureCurrentStudioParams() : null;
   if (existing) {
     existing.name = name;
     existing.prompt = prompt;
+    existing.analyzeTitle = analyzeTitle;
+    existing.params = params;
   } else {
     const template = {
       id: createPromptTemplateId(),
       name,
       prompt,
+      params,
+      analyzeTitle,
     };
     state.promptTemplates.unshift(template);
     state.selectedPromptTemplateId = template.id;
@@ -8849,6 +9076,42 @@ function savePromptTemplate(event) {
   writePromptTemplates();
   selectPromptTemplate(state.selectedPromptTemplateId);
   setPromptTemplateFeedback("模板已保存。");
+}
+
+function captureCurrentStudioParams() {
+  return normalizePromptTemplateParams({
+    ratio: refs.ratioInput?.value || "",
+    size: refs.sizeSelect?.value || "",
+    format: refs.outputFormatInput?.value || "",
+    reasoningEffort: refs.reasoningEffortInput?.value || "",
+  });
+}
+
+function applyPromptTemplateParams(params) {
+  const normalized = normalizePromptTemplateParams(params);
+  if (!normalized) {
+    return;
+  }
+  if (normalized.ratio && refs.ratioInput) {
+    refs.ratioInput.value = normalized.ratio;
+    refs.ratioInput.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  if (normalized.size && refs.sizeSelect) {
+    refs.sizeSelect.value = normalized.size;
+    refs.sizeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  if (normalized.format && refs.outputFormatInput) {
+    const hasFormat = [...refs.outputFormatInput.options].some((option) => option.value === normalized.format);
+    if (hasFormat) {
+      refs.outputFormatInput.value = normalized.format;
+    }
+  }
+  if (normalized.reasoningEffort && refs.reasoningEffortInput) {
+    const hasEffort = [...refs.reasoningEffortInput.options].some((option) => option.value === normalized.reasoningEffort);
+    if (hasEffort) {
+      refs.reasoningEffortInput.value = normalized.reasoningEffort;
+    }
+  }
 }
 
 function applyPromptTemplate(templateId = "") {
@@ -8864,6 +9127,13 @@ function applyPromptTemplate(templateId = "") {
     state.selectedPromptTemplateId = template.id;
   }
   refs.promptInput.value = prompt;
+  if (template) {
+    applyPromptTemplateParams(template.params);
+    state.promptAnalyzeTitle = template.analyzeTitle === true;
+    if (refs.promptTemplateAnalyzeTitleToggle) {
+      refs.promptTemplateAnalyzeTitleToggle.checked = template.analyzeTitle === true;
+    }
+  }
   updatePromptCounter();
   setPromptTemplatePopoverOpen(false);
   refs.promptInput.focus();
@@ -8891,6 +9161,9 @@ function deletePromptTemplate(templateId = "") {
 
   state.promptTemplates = state.promptTemplates.filter((template) => template.id !== selected.id);
   writePromptTemplates();
+  // 套组引用的是模板 id，删除模板后必须级联清理，否则套图会留下指向已删模板的悬空引用。
+  state.promptSets = removePromptTemplateFromSets(state.promptSets, selected.id);
+  writePromptSets();
   if (String(selected.id || "").startsWith("prompt-agent-")) {
     state.promptTemplateDismissedHistoryIds.add(selected.id);
     writeDismissedPromptAgentTemplateIds();
@@ -8903,6 +9176,436 @@ function deletePromptTemplate(templateId = "") {
   state.selectedPromptTemplateId = next?.id || "";
   renderPromptTemplates();
   setPromptTemplateFeedback("模板已删除。");
+}
+
+/* ------------------------------------------------------------------------- *
+ * 套图模板（prompt sets）
+ *
+ * A set is an ordered list of template ids that the studio submits in one go.
+ * Upstream has no such concept, so everything below is additive.
+ * ------------------------------------------------------------------------- */
+
+function createPromptSetId() {
+  return `prompt-set-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function readPromptSets() {
+  try {
+    const raw = window.localStorage.getItem(PROMPT_SET_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map(normalizePromptSet).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePromptSets() {
+  try {
+    window.localStorage.setItem(PROMPT_SET_STORAGE_KEY, JSON.stringify(state.promptSets));
+  } catch {
+    // Keep the in-memory sets even when storage is unavailable.
+  }
+}
+
+function getSelectedPromptSet() {
+  return state.promptSets.find((promptSet) => promptSet.id === state.selectedPromptSetId) || null;
+}
+
+function getPromptSetDraftTemplates() {
+  return state.promptTemplates.filter((template) => state.promptSetDraftTemplateIds.has(template.id));
+}
+
+function setPromptSetFeedback(message = "", kind = "") {
+  if (!refs.promptSetFeedback) {
+    return;
+  }
+  refs.promptSetFeedback.textContent = message;
+  refs.promptSetFeedback.dataset.state = kind;
+}
+
+function syncPromptSetDraftUi() {
+  if (!refs.promptSetSelectionCount) {
+    return;
+  }
+  const selectedCount = getPromptSetDraftTemplates().length;
+  refs.promptSetSelectionCount.textContent = `已选 ${selectedCount} 张`;
+  if (refs.generatePromptSetButton) {
+    refs.generatePromptSetButton.disabled = state.promptSetGenerating || selectedCount === 0;
+    refs.generatePromptSetButton.textContent = state.promptSetGenerating
+      ? "正在生成中..."
+      : `生成套图${selectedCount ? `（${selectedCount} 张）` : ""}`;
+  }
+  if (refs.savePromptSetButton) {
+    refs.savePromptSetButton.disabled = state.promptSetGenerating;
+  }
+}
+
+function selectPromptSet(promptSetId) {
+  const promptSet = state.promptSets.find((entry) => entry.id === promptSetId) || null;
+  state.selectedPromptSetId = promptSet?.id || "";
+  if (refs.promptSetNameInput) {
+    refs.promptSetNameInput.value = promptSet?.name || "";
+  }
+  const availableTemplateIds = new Set(state.promptTemplates.map((template) => template.id));
+  state.promptSetDraftTemplateIds = new Set(
+    (promptSet?.templateIds || []).filter((templateId) => availableTemplateIds.has(templateId)),
+  );
+  setPromptSetFeedback(promptSet ? `已载入「${promptSet.name}」，可调整勾选后重新保存。` : "");
+  renderPromptSets();
+  renderPromptTemplates();
+}
+
+function renderPromptSets() {
+  if (!refs.promptSetList) {
+    return;
+  }
+  refs.promptSetList.replaceChildren();
+  if (state.promptSets.length === 0) {
+    const empty = document.createElement("span");
+    empty.className = "prompt-set-empty";
+    empty.textContent = "还没有套图模板，请先勾选提示词并保存。";
+    refs.promptSetList.appendChild(empty);
+    syncPromptSetDraftUi();
+    return;
+  }
+
+  state.promptSets.forEach((promptSet) => {
+    const templates = resolvePromptSetTemplates(promptSet, state.promptTemplates);
+    const card = document.createElement("div");
+    card.className = "prompt-set-card";
+    card.classList.toggle("active", promptSet.id === state.selectedPromptSetId);
+
+    const mainButton = document.createElement("button");
+    mainButton.className = "prompt-set-card-main";
+    mainButton.type = "button";
+    mainButton.title = `编辑套图：${promptSet.name}`;
+    const title = document.createElement("strong");
+    title.textContent = promptSet.name;
+    const meta = document.createElement("small");
+    meta.textContent = `${templates.length} 张图片`;
+    mainButton.append(title, meta);
+    mainButton.addEventListener("click", () => selectPromptSet(promptSet.id));
+    card.appendChild(mainButton);
+
+    const actions = document.createElement("div");
+    actions.className = "prompt-set-card-actions";
+    const generateButton = document.createElement("button");
+    generateButton.className = "mini-action";
+    generateButton.type = "button";
+    generateButton.textContent = "生成";
+    generateButton.disabled = state.promptSetGenerating;
+    generateButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void startPromptSetGeneration(promptSet.id);
+    });
+    actions.appendChild(generateButton);
+
+    const deleteButton = document.createElement("button");
+    deleteButton.className = "mini-action danger";
+    deleteButton.type = "button";
+    deleteButton.textContent = "删除";
+    deleteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deletePromptSet(promptSet.id);
+    });
+    actions.appendChild(deleteButton);
+    card.appendChild(actions);
+
+    refs.promptSetList.appendChild(card);
+  });
+  syncPromptSetDraftUi();
+}
+
+function savePromptSet() {
+  const templates = getPromptSetDraftTemplates();
+  if (templates.length === 0) {
+    setPromptSetFeedback("请先勾选至少一个提示词模板。", "error");
+    return;
+  }
+  const existing = getSelectedPromptSet();
+  const name = refs.promptSetNameInput?.value.trim() || existing?.name || `套图 ${state.promptSets.length + 1}`;
+  const normalized = normalizePromptSet({
+    id: existing?.id || createPromptSetId(),
+    name,
+    templateIds: templates.map((template) => template.id),
+    updatedAt: new Date().toISOString(),
+  });
+  if (existing) {
+    const index = state.promptSets.findIndex((entry) => entry.id === existing.id);
+    if (index >= 0) {
+      state.promptSets[index] = normalized;
+    }
+  } else {
+    state.promptSets.unshift(normalized);
+  }
+  state.selectedPromptSetId = normalized.id;
+  writePromptSets();
+  renderPromptSets();
+  setPromptSetFeedback(`套图「${normalized.name}」已保存。`, "success");
+}
+
+function deletePromptSet(promptSetId) {
+  const promptSet = state.promptSets.find((entry) => entry.id === promptSetId);
+  if (!promptSet) {
+    return;
+  }
+  if (!window.confirm(`删除套图「${promptSet.name}」？`)) {
+    return;
+  }
+  state.promptSets = state.promptSets.filter((entry) => entry.id !== promptSetId);
+  if (state.selectedPromptSetId === promptSetId) {
+    state.selectedPromptSetId = state.promptSets[0]?.id || "";
+  }
+  writePromptSets();
+  renderPromptSets();
+  setPromptSetFeedback("套图已删除。");
+}
+
+function togglePromptTemplateDraftSelection(templateId) {
+  toggleSelectionValue(state.promptSetDraftTemplateIds, templateId);
+  renderPromptTemplates();
+  syncPromptSetDraftUi();
+}
+
+function selectAllPromptTemplatesForSet() {
+  state.promptSetDraftTemplateIds = new Set(state.promptTemplates.map((template) => template.id));
+  renderPromptTemplates();
+  syncPromptSetDraftUi();
+}
+
+function clearPromptTemplateSelection() {
+  state.promptSetDraftTemplateIds = new Set();
+  renderPromptTemplates();
+  syncPromptSetDraftUi();
+}
+
+async function startPromptSetGeneration(promptSetId = "") {
+  clearError();
+  const savedPromptSet = promptSetId
+    ? state.promptSets.find((entry) => entry.id === promptSetId) || null
+    : null;
+  const editingPromptSet = getSelectedPromptSet();
+  const draftTemplates = getPromptSetDraftTemplates();
+  const promptSet = savedPromptSet || {
+    id: editingPromptSet?.id || "",
+    name: refs.promptSetNameInput?.value.trim() || editingPromptSet?.name || "临时套图",
+    templateIds: draftTemplates.map((template) => template.id),
+  };
+  const templates = savedPromptSet
+    ? resolvePromptSetTemplates(savedPromptSet, state.promptTemplates)
+    : draftTemplates;
+  if (templates.length === 0) {
+    setPromptSetFeedback("这个套图没有可生成的提示词，请重新勾选并保存。", "error");
+    return;
+  }
+
+  const productTitle = String(refs.productTitleInput?.value || "").trim();
+  if (!productTitle) {
+    setPromptSetFeedback("请先在生成区域填写产品标题。", "error");
+    showError("产品标题不能为空。");
+    return;
+  }
+  state.promptSetGenerating = true;
+  setPromptSetFeedback(`正在准备「${promptSet.name}」的 ${templates.length} 个生成任务...`, "busy");
+  renderPromptSets();
+  try {
+    const jobs = templates.map((template) => createJob({
+      prompt: buildTitleAwarePrompt(template.prompt, productTitle, template.analyzeTitle),
+      params: template.params,
+      promptTemplateId: template.id,
+      promptTemplateName: template.name,
+      promptSetId: promptSet.id,
+      promptSetName: promptSet.name,
+    }));
+    state.jobs.unshift(...jobs);
+    jobs.forEach(recordJobQueued);
+    state.selectedPreviewKey = makeJobPreviewKey(jobs[0].id);
+    setPromptSetFeedback(`「${promptSet.name}」已提交，共 ${jobs.length} 张图片。`, "success");
+    setPromptTemplatePopoverOpen(false);
+    setActiveView("studio");
+    renderAll();
+    scheduleGenerationQueue();
+  } finally {
+    state.promptSetGenerating = false;
+    renderPromptSets();
+  }
+}
+
+/* ------------------------------------------------------------------------- *
+ * 提示词配置分享码（prompt kit share）
+ *
+ * The payload format is PROMPT-KIT.V1. + gz./b64. + base64url(JSON) and is
+ * deliberately unchanged: the fork's codes stay readable by older builds.
+ * ------------------------------------------------------------------------- */
+
+function buildCurrentPromptKitShareData() {
+  return {
+    templates: state.promptTemplates,
+    sets: state.promptSets,
+    active: {
+      selectedTemplateId: state.selectedPromptTemplateId,
+      selectedSetId: state.selectedPromptSetId,
+      prompt: refs.promptInput?.value || "",
+      params: captureCurrentStudioParams(),
+      promptEnhanceEnabled: state.promptEnhanceEnabled,
+      promptEnhanceText: refs.promptEnhanceInput?.value || "",
+    },
+  };
+}
+
+async function sharePromptKit() {
+  const button = refs.sharePromptKitButton;
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "正在生成口令...";
+  setPromptKitCodeFeedback("正在整理模板与提示词...", "busy");
+  try {
+    const payload = await encodePromptKitSharePayload(buildCurrentPromptKitShareData());
+    const shareCode = formatPromptKitShareCode(payload);
+    triggerBrowserImageDownload(
+      new Blob([shareCode + "\n"], { type: "text/plain;charset=utf-8" }),
+      `提示词分享-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`,
+    );
+    setPromptKitCodeFeedback("已生成 TXT 下载文件，请将文件发给对方，并使用“导入 TXT”读取。", "success");
+  } catch (error) {
+    setPromptKitCodeFeedback(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
+function setPromptKitCodeFeedback(message = "", kind = "") {
+  if (!refs.promptKitCodeFeedback) {
+    return;
+  }
+  refs.promptKitCodeFeedback.textContent = message;
+  refs.promptKitCodeFeedback.dataset.state = kind;
+}
+
+async function importPromptKitFile() {
+  const input = refs.promptKitFileInput;
+  const file = input.files?.[0];
+  if (!file) return;
+  refs.importPromptKitFileButton.disabled = true;
+  try {
+    if (file.size > 1_000_000) throw new Error("口令文件过大，请选择导出的 TXT 文件。");
+    const code = await file.text();
+    parsePromptKitShareCode(code);
+    refs.promptKitCodeInput.value = code;
+    await importPromptKitShareCode();
+  } catch (error) {
+    setPromptKitCodeFeedback(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    input.value = "";
+    refs.importPromptKitFileButton.disabled = false;
+  }
+}
+
+async function importPromptKitShareCode() {
+  const code = refs.promptKitCodeInput.value.trim();
+  if (!code) {
+    setPromptKitCodeFeedback("请先粘贴对方分享的口令。", "error");
+    refs.promptKitCodeInput.focus();
+    return;
+  }
+  const button = refs.importPromptKitCodeButton;
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "正在导入...";
+  setPromptKitCodeFeedback("正在读取分享口令...", "busy");
+  try {
+    const payload = parsePromptKitShareCode(code);
+    const shared = await decodePromptKitSharePayload(payload);
+    const merged = mergePromptKitShareData(state.promptTemplates, state.promptSets, shared);
+    state.promptTemplates = merged.templates.map(normalizePromptTemplate).filter(Boolean);
+    state.promptSets = merged.sets.map(normalizePromptSet).filter(Boolean);
+    state.selectedPromptTemplateId = state.promptTemplates.some((template) => template.id === merged.active.selectedTemplateId)
+      ? merged.active.selectedTemplateId
+      : state.promptTemplates[0]?.id || "";
+    state.selectedPromptSetId = state.promptSets.some((promptSet) => promptSet.id === merged.active.selectedSetId)
+      ? merged.active.selectedSetId
+      : state.promptSets[0]?.id || "";
+    const selectedPromptSet = state.promptSets.find((promptSet) => promptSet.id === state.selectedPromptSetId);
+    state.promptSetDraftTemplateIds = new Set(
+      resolvePromptSetTemplates(selectedPromptSet, state.promptTemplates).map((template) => template.id),
+    );
+    if (refs.promptSetNameInput) {
+      refs.promptSetNameInput.value = selectedPromptSet?.name || "";
+    }
+    refs.promptInput.value = merged.active.prompt || "";
+    applyPromptTemplateParams(merged.active.params);
+    state.promptEnhanceEnabled = Boolean(merged.active.promptEnhanceEnabled);
+    if (refs.promptEnhanceInput) {
+      refs.promptEnhanceInput.value = merged.active.promptEnhanceText || "";
+    }
+    writePromptTemplates();
+    writePromptSets();
+    syncPromptEnhanceMode();
+    renderPromptTemplates();
+    renderPromptSets();
+    updatePromptCounter();
+    setPromptKitCodeFeedback(
+      `导入完成：已获得 ${shared.templates.length} 个提示词模板和 ${shared.sets.length} 个套图模板。`,
+      "success",
+    );
+  } catch (error) {
+    setPromptKitCodeFeedback(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
+function syncPromptTemplateBatchToolbar() {
+  if (refs.promptTemplateBatchToggleButton) {
+    refs.promptTemplateBatchToggleButton.classList.toggle("active", state.promptTemplateBatchMode);
+    refs.promptTemplateBatchToggleButton.setAttribute("aria-pressed", String(state.promptTemplateBatchMode));
+  }
+  [refs.promptTemplateBatchSelectAllButton, refs.promptTemplateBatchDeleteButton].forEach((el) => {
+    if (el) {
+      el.classList.toggle("hidden", !state.promptTemplateBatchMode);
+    }
+  });
+  if (refs.promptTemplateBatchDeleteButton) {
+    refs.promptTemplateBatchDeleteButton.disabled = state.promptTemplateCheckedIds.length === 0;
+    refs.promptTemplateBatchDeleteButton.textContent = state.promptTemplateCheckedIds.length > 0
+      ? `删除已选 (${state.promptTemplateCheckedIds.length})`
+      : "删除已选";
+  }
+}
+
+function deleteCheckedPromptTemplates() {
+  const checkedIds = state.promptTemplateCheckedIds;
+  if (checkedIds.length === 0) {
+    setPromptTemplateFeedback("先勾选要删除的模板。");
+    return;
+  }
+  if (!window.confirm(`删除选中的 ${checkedIds.length} 个提示词模板？`)) {
+    return;
+  }
+  // 一次删多条时必须同时级联清理套组引用，否则套图会指向已删模板。
+  const result = removePromptTemplatesFromLibrary(state.promptTemplates, state.promptSets, checkedIds);
+  state.promptTemplates = result.templates.map(normalizePromptTemplate).filter(Boolean);
+  state.promptSets = result.sets.map(normalizePromptSet).filter(Boolean);
+  state.promptTemplateCheckedIds = [];
+  if (!state.promptTemplates.some((template) => template.id === state.selectedPromptTemplateId)) {
+    state.selectedPromptTemplateId = state.promptTemplates[0]?.id || "";
+  }
+  if (!state.promptSets.some((promptSet) => promptSet.id === state.selectedPromptSetId)) {
+    state.selectedPromptSetId = state.promptSets[0]?.id || "";
+  }
+  writePromptTemplates();
+  writePromptSets();
+  renderPromptTemplates();
+  renderPromptSets();
+  setPromptTemplateFeedback(`已删除 ${checkedIds.length} 个模板。`);
+}
+
+function movePromptTemplate(templateId, direction) {
+  state.promptTemplates = movePromptTemplateInList(state.promptTemplates, templateId, direction);
+  writePromptTemplates();
+  renderPromptTemplates();
 }
 
 function setPromptTemplatePopoverOpen(open) {
@@ -19046,6 +19749,54 @@ function removeJob(jobId) {
   state.jobs = state.jobs.filter((job) => job.id !== jobId);
 }
 
+// 保留失败任务，让用户能一键重试；只有「重试没有意义」的模式才直接移除，
+// 否则失败一次就要重填整张表单。
+function finalizeFailedJob(job, message) {
+  if (!job) {
+    return;
+  }
+  if (!isRetryableStudioJob(job)) {
+    removeJob(job.id);
+    return;
+  }
+  updateJob(job.id, {
+    status: "error",
+    statusStage: "error",
+    statusText: message || "生成失败",
+    errorMessage: message || "生成失败",
+    isRunning: false,
+    started: true,
+    failedAt: nowIso(),
+  });
+}
+
+async function retryFailedJob(jobId) {
+  const failedJob = state.jobs.find((job) => job.id === jobId);
+  if (!failedJob || normalizeGenerationTaskStatus(failedJob.status) !== "error") {
+    return;
+  }
+  removeJob(jobId);
+  const retryJob = {
+    ...failedJob,
+    id: `job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: nowIso(),
+    isRunning: false,
+    started: false,
+    status: "running",
+    statusStage: "queued",
+    statusText: buildGenerationTaskStatusText({ statusStage: "queued", statusText: "等待并发槽位" }),
+    errorMessage: "",
+    failedAt: "",
+    previewUrl: "",
+    requestRetryCount: 0,
+  };
+  state.jobs.unshift(retryJob);
+  state.selectedPreviewKey = makeJobPreviewKey(retryJob.id);
+  recordJobQueued(retryJob);
+  renderAll();
+  scheduleGenerationQueue();
+}
+
 function recordPromptDeckImage(job, previewUrl, kind) {
   if (!isPromptDeckJob(job) || !previewUrl) {
     return;
@@ -20379,7 +21130,7 @@ async function runGeneration(job) {
           removeQuickBlendGenerationKey(makeJobPreviewKey(job.id));
           setQuickBlendFeedback(message, "error");
         }
-        removeJob(job.id);
+        finalizeFailedJob(job, message);
         renderAll();
       }
     });
@@ -20403,7 +21154,7 @@ async function runGeneration(job) {
         removeQuickBlendGenerationKey(makeJobPreviewKey(job.id));
         setQuickBlendFeedback(message, "error");
       }
-      removeJob(job.id);
+      finalizeFailedJob(job, message);
       renderAll();
     }
   } catch (error) {
@@ -20429,7 +21180,7 @@ async function runGeneration(job) {
       removeQuickBlendGenerationKey(makeJobPreviewKey(job.id));
       setQuickBlendFeedback(message, "error");
     }
-    removeJob(job.id);
+    finalizeFailedJob(job, message);
     renderAll();
   } finally {
     const currentJob = state.jobs.find((entry) => entry.id === job.id);
@@ -20697,7 +21448,19 @@ function getClipboardImageFiles(clipboardData) {
   }
 
   return [...(clipboardData?.files || [])].filter((file) => file.type.startsWith("image/"));
-} function isPromptAgentModalOpen() { return !refs.promptAgentModal.classList.contains("hidden"); } function handlePromptAgentImagePaste(event) { if (!isPromptAgentModalOpen() || event.defaultPrevented) { return; } const imageFiles = getClipboardImageFiles(event.clipboardData); if (imageFiles.length === 0) { return; } event.preventDefault(); applyPromptAgentFile(imageFiles); }
+} function isPromptAgentModalOpen() { return !refs.promptAgentModal.classList.contains("hidden"); } function handlePromptAgentImagePaste(event) {
+  if (!isPromptAgentModalOpen() || event.defaultPrevented) {
+    return;
+  }
+  const imageFiles = getClipboardImageFiles(event.clipboardData);
+  if (imageFiles.length === 0) {
+    return;
+  }
+  event.preventDefault();
+  void hardenClipboardImagePaste(imageFiles, (imageFiles) => {
+    applyPromptAgentFile(imageFiles);
+  });
+}
 function handleStudioImagePaste(event) {
   const imageFiles = getClipboardImageFiles(event.clipboardData);
   if (imageFiles.length === 0) {
@@ -20705,15 +21468,150 @@ function handleStudioImagePaste(event) {
   }
 
   event.preventDefault();
-  if (state.studioMode === "style-transfer") {
-    applyStyleTransferReferenceFile("source", imageFiles);
+  void hardenClipboardImagePaste(imageFiles, (imageFiles) => {
+    if (state.studioMode === "style-transfer") {
+      applyStyleTransferReferenceFile("source", imageFiles);
+      return;
+    }
+
+    applyReferenceFiles(imageFiles);
+  });
+}
+
+function handleCreationReferenceImagePaste(event) {
+  if (event.defaultPrevented || state.activeView !== "creation" || isCreationLogoBatchBranch()) return;
+  const imageFiles = getClipboardImageFiles(event.clipboardData);
+  if (imageFiles.length === 0) return;
+  event.preventDefault();
+  void hardenClipboardImagePaste(imageFiles, (imageFiles) => {
+    applyCreationReferenceFiles(imageFiles);
+  });
+}
+
+// ClipboardEvent hands out File objects that the browser may reclaim once the
+// handler returns; reading the bytes at paste time keeps later previews from
+// seeing an empty file. Rejecting individual failures keeps one bad image from
+// taking the rest of the batch down with it.
+async function decodeClipboardImageFile(file) {
+  if (typeof createImageBitmap === "function") {
+    const bitmap = await createImageBitmap(file);
+    try {
+      if (!bitmap.width || !bitmap.height) {
+        throw new Error("剪贴板图片没有有效尺寸。");
+      }
+    } finally {
+      if (typeof bitmap.close === "function") {
+        bitmap.close();
+      }
+    }
     return;
   }
 
-  applyReferenceFiles(imageFiles);
+  const previewUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = previewUrl;
+    if (typeof image.decode === "function") {
+      await image.decode();
+    } else {
+      await new Promise((resolve, reject) => {
+        image.addEventListener("load", resolve, { once: true });
+        image.addEventListener("error", () => reject(new Error("浏览器无法解码剪贴板图片。")), { once: true });
+      });
+    }
+    if (!image.naturalWidth || !image.naturalHeight) {
+      throw new Error("剪贴板图片没有有效尺寸。");
+    }
+  } finally {
+    URL.revokeObjectURL(previewUrl);
+  }
 }
 
-function handleCreationReferenceImagePaste(event) { if (event.defaultPrevented || state.activeView !== "creation" || isCreationLogoBatchBranch()) return; const imageFiles = getClipboardImageFiles(event.clipboardData); if (imageFiles.length === 0) return; event.preventDefault(); applyCreationReferenceFiles(imageFiles); }
+async function hardenClipboardImagePaste(imageFiles, apply) {
+  const { acceptedFiles, rejectedFiles } = await prepareClipboardImageFiles(imageFiles, {
+    decodeImageFile: decodeClipboardImageFile,
+    retryDelayMs: 60,
+  });
+  if (acceptedFiles.length === 0) {
+    showError(rejectedFiles[0]?.message || "粘贴的图片读取失败，请重新复制后再试。");
+    return;
+  }
+  if (rejectedFiles.length > 0) {
+    showError(`已粘贴 ${acceptedFiles.length} 张图片，另有 ${rejectedFiles.length} 张读取失败，请重新复制后再试。`);
+  }
+  apply(acceptedFiles);
+}
+
+// Upstream only listens for paste on the prompt and style-transfer inputs, the
+// creation view, and the prompt-agent modal. These views have a dropzone but no
+// paste handler, so Ctrl+V there would otherwise do nothing.
+function getActiveImagePasteRouteContext() {
+  const view = state.activeView;
+  if (!["studio", "style-transfer", "reference-analysis", "image-decomposition", "creation", "portrait"].includes(view)) {
+    return null;
+  }
+  return {
+    view,
+    studioMode: state.studioMode,
+    creationLogoBatch: view === "creation" && isCreationLogoBatchBranch(),
+  };
+}
+
+function routeImagePasteToActiveDropzone(imageFiles, routeContext) {
+  const view = routeContext?.view;
+
+  if (view === "studio") {
+    if (routeContext.studioMode === "style-transfer") {
+      applyStyleTransferReferenceFile("source", imageFiles);
+    } else {
+      applyReferenceFiles(imageFiles);
+    }
+    return true;
+  }
+  if (view === "style-transfer") {
+    applyStyleTransferReferenceFile("source", imageFiles);
+    return true;
+  }
+  if (view === "reference-analysis") {
+    applyReferenceAnalysisFiles(imageFiles);
+    return true;
+  }
+  if (view === "image-decomposition") {
+    applyImageDecompositionFile(imageFiles);
+    return true;
+  }
+  if (view === "creation") {
+    if (routeContext.creationLogoBatch) {
+      applyCreationLogoBatchSourceFiles(imageFiles);
+    } else {
+      applyCreationReferenceFiles(imageFiles);
+    }
+    return true;
+  }
+  if (view === "portrait") {
+    applyPortraitReferenceFiles(imageFiles, "person");
+    return true;
+  }
+
+  return false;
+}
+
+// Registered after the scoped handlers, so when one of them already consumed the
+// paste (event.defaultPrevented) this router stays out of the way.
+function handleGlobalImagePaste(event) {
+  if (event.defaultPrevented) {
+    return;
+  }
+  const imageFiles = getClipboardImageFiles(event.clipboardData);
+  const routeContext = getActiveImagePasteRouteContext();
+  if (imageFiles.length === 0 || !routeContext) {
+    return;
+  }
+  event.preventDefault();
+  void hardenClipboardImagePaste(imageFiles, (imageFiles) => {
+    routeImagePasteToActiveDropzone(imageFiles, routeContext);
+  });
+}
 
 function setCreationPlatformItemOverride(slotKey, field, value) {
   const overrides = updateCreationPlatformItemOverride(
@@ -20815,6 +21713,9 @@ function bindEvents() {
   creationCardIdleRippleController.bind();
   disabledShakeController.bind();
   document.addEventListener("paste", handlePromptAgentImagePaste); document.addEventListener("paste", handleCreationReferenceImagePaste);
+  // Registered last so the scoped handlers above claim the paste first and this
+  // fallback only serves the dropzones that have no handler of their own.
+  document.addEventListener("paste", handleGlobalImagePaste);
 
   refs.viewTabs.forEach((button) => {
     button.addEventListener("click", () => {
@@ -21763,6 +22664,50 @@ function bindEvents() {
   });
   refs.applyPromptTemplateButton.addEventListener("click", applyPromptTemplate);
   refs.deletePromptTemplateButton.addEventListener("click", deletePromptTemplate);
+  refs.sharePromptKitButton?.addEventListener("click", () => {
+    void sharePromptKit();
+  });
+  refs.importPromptKitCodeButton?.addEventListener("click", () => {
+    void importPromptKitShareCode();
+  });
+  refs.importPromptKitFileButton?.addEventListener("click", () => {
+    refs.promptKitFileInput?.click();
+  });
+  refs.promptKitFileInput?.addEventListener("change", () => {
+    void importPromptKitFile();
+  });
+  refs.newPromptSetButton?.addEventListener("click", () => {
+    state.selectedPromptSetId = "";
+    state.promptSetDraftTemplateIds = new Set();
+    if (refs.promptSetNameInput) {
+      refs.promptSetNameInput.value = "";
+    }
+    setPromptSetFeedback("");
+    renderPromptSets();
+    renderPromptTemplates();
+  });
+  refs.savePromptSetButton?.addEventListener("click", savePromptSet);
+  refs.generatePromptSetButton?.addEventListener("click", () => {
+    void startPromptSetGeneration();
+  });
+  refs.selectAllPromptTemplatesButton?.addEventListener("click", selectAllPromptTemplatesForSet);
+  refs.clearPromptTemplateSelectionButton?.addEventListener("click", clearPromptTemplateSelection);
+  refs.promptTemplateBatchToggleButton?.addEventListener("click", () => {
+    state.promptTemplateBatchMode = !state.promptTemplateBatchMode;
+    if (!state.promptTemplateBatchMode) {
+      state.promptTemplateCheckedIds = [];
+    }
+    renderPromptTemplates();
+  });
+  refs.promptTemplateBatchSelectAllButton?.addEventListener("click", () => {
+    const allIds = state.promptTemplates.map((template) => template.id);
+    state.promptTemplateCheckedIds = areAllItemsSelected(
+      state.promptTemplates.map((template) => ({ filename: template.id })),
+      new Set(state.promptTemplateCheckedIds),
+    ) ? [] : allIds;
+    renderPromptTemplates();
+  });
+  refs.promptTemplateBatchDeleteButton?.addEventListener("click", deleteCheckedPromptTemplates);
   refs.promptTemplateLibraryNav?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-prompt-template-category]");
     if (!button) {
@@ -22010,6 +22955,17 @@ function bindEvents() {
   refs.gallerySelectionModeButton.addEventListener("click", () => { if (state.galleryLoading || state.assetRecordDeletion.busy) return; state.gallerySelectionMode = !state.gallerySelectionMode; renderGalleryView(); });
   refs.galleryDeleteCurrentButton.addEventListener("click", () => requestAssetRecordDelete("gallery", "current"));
   refs.galleryDeleteSelectedButton.addEventListener("click", () => requestAssetRecordDelete("gallery", "selected"));
+  refs.galleryDownloadSelectedButton?.addEventListener("click", () => {
+    void batchDownloadSelectedGalleryItems();
+  });
+  refs.gallerySelectAllButton?.addEventListener("click", () => {
+    toggleAllVisibleGallerySelection();
+  });
+  refs.gallerySelectClearButton?.addEventListener("click", () => {
+    if (state.galleryCheckedFilenames.length === 0) return;
+    state.galleryCheckedFilenames = [];
+    renderGalleryView();
+  });
   refs.gallerySections.addEventListener("change", (event) => {
     const checkbox = event.target.closest("[data-gallery-select-filename]");
     if (!checkbox) return;
@@ -22080,6 +23036,20 @@ function bindEvents() {
       return;
     }
     void addCurrentPreviewToReferences();
+  });
+  refs.previewApplyConfigButton?.addEventListener("click", () => {
+    const item = getCurrentPreviewItem();
+    if (!item || !canApplyItemConfig(item)) {
+      return;
+    }
+    applyItemConfigToStudio(item);
+  });
+  refs.previewRetryButton?.addEventListener("click", () => {
+    const job = getSelectedJob();
+    if (!job) {
+      return;
+    }
+    void retryFailedJob(job.id).catch((error) => showError(error.message));
   });
   refs.previewLightboxButton.addEventListener("click", () => {
     const item = getCurrentPreviewItem();
@@ -22320,7 +23290,15 @@ async function bootstrap() {
   state.galleryMetadataCache = readGalleryMetadataCache();
   state.promptTemplates = readPromptTemplates();
   state.promptTemplateDismissedHistoryIds = readDismissedPromptAgentTemplateIds();
+  state.promptSets = readPromptSets();
   state.selectedPromptTemplateId = state.promptTemplates[0]?.id || "";
+  state.selectedPromptSetId = state.promptSets[0]?.id || "";
+  state.promptSetDraftTemplateIds = new Set(
+    resolvePromptSetTemplates(state.promptSets[0], state.promptTemplates).map((template) => template.id),
+  );
+  if (refs.promptSetNameInput && state.promptSets[0]) {
+    refs.promptSetNameInput.value = state.promptSets[0].name;
+  }
   bindEvents();
   bindStudioDensitySync();
   bindStudioHeightSync();
