@@ -285,3 +285,54 @@ test("security and contribution guidance are tracked project documents", async (
   assert.match(contributing, /sync:public-lib/);
   assert.match(contributing, /check:release/);
 });
+
+// ─── fork 自有资产护栏（地图 #1 收口核对补） ───
+//
+// 这个 fork 的整个历史只有一种故障模式：**重建到上游基线时，上游没有的东西静默消失**。
+// 已经发生过两次：一次丢掉 SSE 折行/控制字符容错，一次丢掉胶片条批量下载入口；
+// 两次都不报错，都要人工比对才发现。本测试把「fork 自有」的东西列成清单钉住：
+// 删掉任何一个，这里立刻打红，而不是等下一个人翻 diff。
+
+test("fork-only capabilities stay present after any upstream re-base", async () => {
+  const { stat } = await import("node:fs/promises");
+
+  // 每个条目 = 一个 fork 独有能力的最小锚点（文件本身，或文件内的关键导出）。
+  const anchors = [
+    // lib：上游零命中的模块
+    { path: "../lib/clipboard-image-files.mjs", contains: "prepareClipboardImageFiles" },
+    { path: "../lib/download-directory.mjs", contains: "saveDownloadFile" },
+    { path: "../lib/gallery-window.mjs", contains: "applyGalleryRenderWindowToSections" },
+    { path: "../lib/prompt-kit-share.mjs", contains: "PROMPT-KIT.V1." },
+    { path: "../lib/site-branding.mjs", contains: "applySiteBrandFavicon" },
+    { path: "../lib/studio-enhancements.mjs", contains: "saveGalleryItemsIndividually" },
+    // 浏览器副本：缺一则功能静默不生效（浏览器加载的是副本）
+    { path: "../public/lib/clipboard-image-files.mjs", contains: "prepareClipboardImageFiles" },
+    { path: "../public/lib/gallery-window.mjs", contains: "applyGalleryRenderWindowToSections" },
+    { path: "../public/lib/prompt-kit-share.mjs", contains: "PROMPT-KIT.V1." },
+    { path: "../public/lib/site-branding.mjs", contains: "applySiteBrandFavicon" },
+    { path: "../public/lib/studio-enhancements.mjs", contains: "saveGalleryItemsIndividually" },
+    // 静态资源
+    { path: "../public/assets/site-brand-default.svg", contains: "" },
+    // 生成容错：重建时丢过一次，别再丢第二次
+    { path: "../lib/responses-workflow.mjs", contains: "escapeJsonStringControlCharacters" },
+    { path: "../lib/responses-workflow.mjs", contains: "dataCompact" },
+    { path: "../lib/generation-client.mjs", contains: "escapeJsonStringControlCharacters" },
+    { path: "../public/lib/generation-client.mjs", contains: "escapeJsonStringControlCharacters" },
+    // 工具与文档
+    { path: "../scripts/verify-ci-gates.mjs", contains: "EXPECTED_LINUX_SKIPS" },
+    { path: "../docs/linux-ci-gates.md", contains: "" },
+  ];
+
+  for (const anchor of anchors) {
+    const url = new URL(anchor.path, import.meta.url);
+    const fileStat = await stat(url).catch(() => null);
+    assert.ok(fileStat?.isFile(), `${anchor.path} 是 fork 自有资产，不得从基线中被删除`);
+    if (anchor.contains) {
+      const body = await readFile(url, "utf8");
+      assert.ok(
+        body.includes(anchor.contains),
+        `${anchor.path} 必须仍含 ${anchor.contains}；重建到上游基线时该能力曾被静默丢弃`,
+      );
+    }
+  }
+});
