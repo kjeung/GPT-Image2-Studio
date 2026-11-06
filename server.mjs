@@ -1704,6 +1704,7 @@ async function handleGalleryMetadataRepair(request, response) {
     const items = await listGalleryItems({
       outputDir,
       publicBasePath: "/output",
+      filename,
     });
     const item = items.find((entry) => entry.filename === filename) || null;
 
@@ -1814,6 +1815,7 @@ async function handlePromptPreviewSave(request, response) {
   const items = await listGalleryItems({
     outputDir,
     publicBasePath: "/output",
+    filename: saved.filename,
   });
   const item = items.find((entry) => entry.filename === saved.filename) || null;
 

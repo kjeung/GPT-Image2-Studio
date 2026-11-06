@@ -11602,6 +11602,70 @@ html[data-theme="dark"] #previewImage {
   min-height: 118px;
   overflow: hidden;
   flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 胶片条多选批量下载（fork 独有；上游图库只做批量删除，胶片条没有多选）。 */
+.filmstrip-select-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.filmstrip-select-controls .toolbar-button.active {
+  border-color: rgba(132, 147, 255, 0.55);
+  color: var(--text);
+  background: rgba(111, 124, 255, 0.16);
+}
+
+.filmstrip-selection-count {
+  align-self: center;
+  color: var(--muted);
+  font-size: var(--type-subtitle-size);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.filmstrip-entry.is-selectable .filmstrip-item {
+  cursor: pointer;
+}
+
+.filmstrip-entry.is-selectable .filmstrip-item img {
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+}
+
+.filmstrip-entry.is-checked .filmstrip-item img {
+  outline-color: rgba(132, 147, 255, 0.9);
+  border-color: rgba(141, 156, 255, 0.72);
+}
+
+.filmstrip-tile-check {
+  position: absolute;
+  top: 5px;
+  left: 7px;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background: rgba(6, 10, 18, 0.5);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.filmstrip-entry.is-checked .filmstrip-tile-check {
+  border-color: rgba(132, 147, 255, 0.95);
+  background: rgba(111, 124, 255, 0.92);
 }
 
 .filmstrip {

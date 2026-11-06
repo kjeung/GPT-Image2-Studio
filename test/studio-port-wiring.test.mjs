@@ -129,3 +129,63 @@ test("every module the browser loads is on the public-lib sync list", async () =
     );
   }
 });
+
+// ─── 收口核对补回的三项 fork 能力（#15）：都有接线断言，避免再次「移植一半」 ───
+
+test("the filmstrip keeps its own multi-select download path", async () => {
+  const app = await readApp();
+  const html = await readFile(htmlPath, "utf8");
+
+  // 研究票 #2 明确写 saveGalleryItemsIndividually 供画廊与胶片条**两个入口**调用；
+  // 重建时只接了画廊那一半。这里钉住两个入口都在。
+  const callers = app.match(/batchSaveGalleryItems\(items\)/g) || [];
+  assert.ok(callers.length >= 2, "both the gallery and the filmstrip must reach batchSaveGalleryItems");
+
+  assert.match(
+    app,
+    /async function batchDownloadSelectedFilmstripItems\(\) \{[\s\S]*selectGalleryItemsByFilenames\(getFilmstripSelectableItems\(\), \[\.\.\.state\.filmstripSelection\]\)/,
+  );
+  // 胶片条的勾选集必须与画廊的勾选集分开，否则点胶片条会改掉「删除选中」的目标。
+  assert.doesNotMatch(
+    app,
+    /async function batchDownloadSelectedFilmstripItems\(\) \{[\s\S]{0,2000}?galleryCheckedFilenames/,
+  );
+  for (const id of [
+    "filmstripSelectToggle",
+    "filmstripSelectAllButton",
+    "filmstripSelectClearButton",
+    "filmstripSelectionCount",
+    "filmstripBatchDownloadButton",
+  ]) {
+    assert.match(html, new RegExp(`id="${id}"`), `#${id} must be in the studio shell`);
+    assert.match(app, new RegExp(`#${id}`), `#${id} must be resolved in refs`);
+  }
+});
+
+test("the image lightbox can load a generation's configuration", async () => {
+  const app = await readApp();
+  const html = await readFile(htmlPath, "utf8");
+
+  assert.match(html, /id="lightboxApplyConfigButton"/);
+  assert.match(app, /refs\.lightboxApplyConfigButton\?\.addEventListener\("click", \(\) => \{[\s\S]*canApplyItemConfig\(item\)/);
+  // 载入配置必须把参考图也搬回去：只搬参数等于丢了「这张图用哪张参考图生成的」。
+  assert.match(
+    app,
+    /async function applyItemConfigToStudio\(item, \{ addReference = true \} = \{\}\) \{[\s\S]*await addGalleryItemAsReference\(item\)/,
+  );
+  assert.match(app, /async function addGalleryItemAsReference\(item\) \{[\s\S]*applyReferenceFiles\(\[file\]\)/);
+});
+
+test("the gallery keeps the draggable scrollbar its markup needs", async () => {
+  const app = await readApp();
+  const html = await readFile(htmlPath, "utf8");
+  const styles = await readFile(new URL("../public/styles.css", import.meta.url), "utf8");
+
+  // 滚动条的 JS 控制器与 CSS 都在上游基线上；缺的是 index.html 里那一段元素，
+  // 于是 refs 全为 null、syncGalleryScrollUi 直接早退，滚动条静默消失。
+  for (const id of ["galleryScrollbar", "galleryScrollUp", "galleryScrollDown", "galleryScrollTrack", "galleryScrollThumb"]) {
+    assert.match(html, new RegExp(`id="${id}"`), `#${id} must be rendered inside .gallery-scroll-shell`);
+  }
+  assert.match(app, /#galleryScrollbar/);
+  assert.match(styles, /\.gallery-scrollbar \{/);
+});

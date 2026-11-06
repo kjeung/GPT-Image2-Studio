@@ -818,3 +818,27 @@ test("gallery store repairs sparse metadata from a richer client-side payload", 
   assert.deepEqual(sidecarPayload.referenceImageNames, ["reference-a.png"]);
   assert.equal(indexPayload["repairable.jpeg"].prompt, "鐩存挱闂存姢鑲ょぜ鐩掍富瑙嗚");
 });
+
+// ─── 单文件回读快路径（收口核对补回 e58e83e 的那半，纯延迟不回退） ───
+
+test("listGalleryItems can filter to one filename without scanning the whole archive", async () => {
+  const root = await mkdtemp(join(tmpdir(), "gallery-filename-filter-"));
+  const outputDir = join(root, "output");
+  await mkdir(outputDir, { recursive: true });
+  const stamps = Array.from({ length: 6 }, (_, index) => `p-${index}.png`);
+  for (const filename of stamps) {
+    await writeFile(join(outputDir, filename), Buffer.from("png"));
+  }
+
+  const all = await listGalleryItems({ outputDir });
+  assert.equal(all.length, stamps.length);
+
+  const one = await listGalleryItems({ outputDir, filename: "p-3.png" });
+  assert.equal(one.length, 1);
+  assert.equal(one[0].filename, "p-3.png");
+
+  // 不存在的文件名必须返回空数组而不是回落成全量——否则调用方的 .find()
+  // 会把「没找到」伪装成「找到了别的」。
+  const missing = await listGalleryItems({ outputDir, filename: "absent.png" });
+  assert.deepEqual(missing, []);
+});

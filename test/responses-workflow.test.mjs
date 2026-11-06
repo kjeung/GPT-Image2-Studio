@@ -10,8 +10,10 @@ import {
   createResponsesRequestBody,
   createChatCompletionsImageRequestBody,
   formatFetchFailureDetail,
+  escapeJsonStringControlCharacters,
   formatStatusHeartbeatMessage,
   isMissingMultipartImageFieldError,
+  parseSseChunk,
   recoverOriginalResponse,
   normalizeBaseUrl,
   requestDirectImageGeneration,
@@ -4149,4 +4151,83 @@ test("a failed recovery lookup names the hop and keeps the transport cause", asy
   );
 
   assert.deepEqual(methods, ["POST", "GET", "POST", "GET"]);
+});
+
+// ─── fork 回归：代理折行与控制字符（legacy-v0.2.0 的 7ca4011 修过，重建时丢了） ───
+
+test("parseSseChunk keeps the spec join and also offers the compact form", () => {
+  const chunk = [
+    "event: response.output_item.done",
+    'data: {"type":"response.output_item.done",',
+    'data: "item":{"type":"image_generation_call","result":"abc"}}',
+  ].join("\n");
+
+  const parsed = parseSseChunk(chunk);
+
+  // 规范拼法：多行 data 用换行拼接。
+  assert.equal(parsed.data, '{"type":"response.output_item.done",\n"item":{"type":"image_generation_call","result":"abc"}}');
+  // 紧凑拼法：代理把长 JSON 拦腰折断时，换行是硬塞进来的，必须能去掉。
+  assert.equal(parsed.dataCompact, '{"type":"response.output_item.done","item":{"type":"image_generation_call","result":"abc"}}');
+});
+
+test("parseSseChunk only strips one leading space after data:", () => {
+  const parsed = parseSseChunk(["data:  indented", "data: plain"].join("\n"));
+
+  // 只吃掉 `data:` 后面的第一个空格；第二个空格属于数据本身。
+  assert.equal(parsed.data, " indented\nplain");
+});
+
+test("a payload split mid-string across data lines still parses (proxy wrapping)", async () => {
+  const resultBase64 = "A".repeat(400);
+  const payload = JSON.stringify({
+    type: "response.output_item.done",
+    item: { type: "image_generation_call", result: resultBase64 },
+  });
+  // 恰好切在字符串中间的空白处：按规范拼回会得到一个裸换行。
+  const splitAt = payload.indexOf(resultBase64) + 120;
+  const sse = [
+    "event: response.output_item.done",
+    `data: ${payload.slice(0, splitAt)}`,
+    `data: ${payload.slice(splitAt)}`,
+    "",
+    "",
+  ].join("\n");
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(sse));
+      controller.close();
+    },
+  });
+
+  const result = await consumeResponsesSse(stream);
+
+  assert.equal(result.finalImageBase64, resultBase64);
+});
+
+test("escapeJsonStringControlCharacters only rewrites string literals", () => {
+  const raw = `{"a":"x${String.fromCharCode(10)}y","b":[1,2]}`;
+
+  assert.equal(
+    escapeJsonStringControlCharacters(raw),
+    '{"a":"x\\u000ay","b":[1,2]}',
+  );
+  // 结构里的空白不受影响：换看一行格式化 JSON。
+  const pretty = '{\n  "a": "ok"\n}';
+  assert.equal(escapeJsonStringControlCharacters(pretty), pretty);
+});
+
+test("direct image generation repairs raw control characters inside upstream JSON strings", async () => {
+  const rawJson = `{"data":[{"b64_json":"prefix${String.fromCharCode(10)}suffix"}]}`;
+
+  const result = await requestDirectImageGeneration({
+    baseUrl: "https://example.test/v1",
+    apiKey: "test-key",
+    prompt: "Create a test image",
+    size: "1024x1024",
+    quality: "high",
+    imageModel: "gpt-image-2",
+    fetchImpl: async () => new Response(rawJson, { status: 200 }),
+  });
+
+  assert.equal(result.finalImageBase64, "prefix\nsuffix");
 });

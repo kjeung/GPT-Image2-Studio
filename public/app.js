@@ -920,6 +920,9 @@ const state = {
   galleryCheckedFilenames: [],
   gallerySelectionMode: false,
   galleryBatchDownloading: false,
+  filmstripSelectionMode: false,
+  filmstripSelection: new Set(),
+  filmstripBatchDownloading: false,
   galleryCurrentFilename: "",
   galleryDeleteFeedback: "",
   galleryLoading: true,
@@ -1416,6 +1419,11 @@ const refs = {
   siteBrandTaglineInput: document.querySelector("#siteBrandTaglineInput"),
   siteBrandUploadZone: document.querySelector("#siteBrandUploadZone"),
   filmstrip: document.querySelector("#filmstrip"),
+  filmstripSelectToggle: document.querySelector("#filmstripSelectToggle"),
+  filmstripSelectAllButton: document.querySelector("#filmstripSelectAllButton"),
+  filmstripSelectClearButton: document.querySelector("#filmstripSelectClearButton"),
+  filmstripSelectionCount: document.querySelector("#filmstripSelectionCount"),
+  filmstripBatchDownloadButton: document.querySelector("#filmstripBatchDownloadButton"),
   focusGalleryButton: document.querySelector("#focusGalleryButton"),
   galleryActionFeedback: document.querySelector("#galleryActionFeedback"),
   galleryCount: document.querySelector("#galleryCount"),
@@ -1469,6 +1477,7 @@ const refs = {
   lightboxComparison: document.querySelector("#lightboxComparison"),
   applyPromptButton: document.querySelector("#applyPromptButton"),
   copyPromptButton: document.querySelector("#copyPromptButton"),
+  lightboxApplyConfigButton: document.querySelector("#lightboxApplyConfigButton"),
   lightboxDownload: document.querySelector("#lightboxDownload"),
   lightboxId: document.querySelector("#lightboxId"),
   lightboxFilename: document.querySelector("#lightboxFilename"),
@@ -6783,6 +6792,7 @@ function syncLightboxItem() {
     refs.applyPromptButton.disabled = true;
     refs.applyPromptButton.classList.add("hidden");
     refs.lightboxDismissButton.classList.add("hidden");
+    refs.lightboxApplyConfigButton?.classList.add("hidden");
     refs.lightbox.classList.remove("is-image-only-preview");
     refs.lightbox.classList.remove("is-style-transfer-comparison");
     renderStyleTransferLightboxComparison(null);
@@ -6799,6 +6809,13 @@ function syncLightboxItem() {
 
   const imageUrl = getImageUrl(fresh);
   state.lightboxItem = fresh;
+  // 灯箱里的「载入配置」与预览面板那个同一判准入：能还原参数就走，创建记录
+  // 这类没有可还原参数的对象不给虚假入口。
+  if (refs.lightboxApplyConfigButton) {
+    const canApply = canApplyItemConfig(fresh);
+    refs.lightboxApplyConfigButton.classList.toggle("hidden", !canApply);
+    refs.lightboxApplyConfigButton.disabled = !canApply;
+  }
   refs.lightbox.classList.toggle("is-image-only-preview", Boolean(fresh.isImageOnlyLightboxItem));
   refs.lightbox.classList.toggle("is-style-transfer-comparison", Boolean(fresh.isStyleTransferComparisonItem));
   renderStyleTransferLightboxComparison(fresh);
@@ -7527,6 +7544,10 @@ function createFilmstripEntry(key) {
   button.type = "button";
   button.className = "filmstrip-item";
   button.addEventListener("click", () => {
+    if (state.filmstripSelectionMode) {
+      toggleFilmstripSelectionByKey(key);
+      return;
+    }
     setSelectedPreviewKey(key);
   });
 
@@ -7623,6 +7644,7 @@ function syncFilmstripEntry(shell, { key, item, label }) {
   caption.textContent = label;
 
   syncFilmstripSelectedMarker(shell, isSelected, { documentRef: document });
+  syncFilmstripSelectionState(shell, key, item);
   syncFilmstripCancelButton(shell, key, item);
   syncFilmstripDeck(shell, key);
 }
@@ -7743,6 +7765,146 @@ function renderFilmstripEntries() {
   });
 
   refs.filmstrip.replaceChildren(fragment);
+}
+
+/* 胶片条多选批量下载：状态与画廊勾选完全独立。
+   画廊那份勾选集同时喂「删除选中」，胶片条这份只喂下载，所以不能共用，
+   否则在胶片条里点一下就会改变画廊的删除目标。 */
+
+function getFilmstripSelectableItems() {
+  return getFilmstripItems()
+    .map((entry) => entry.item)
+    .filter((item) => item && String(item.filename || "") && getImageUrl(item));
+}
+
+function isFilmstripItemSelectable(item) {
+  return Boolean(item && String(item.filename || "") && getImageUrl(item));
+}
+
+function renderFilmstripSelectionToolbar() {
+  const mode = state.filmstripSelectionMode;
+  const count = state.filmstripSelection.size;
+  if (refs.filmstripSelectToggle) {
+    refs.filmstripSelectToggle.classList.toggle("active", mode);
+    refs.filmstripSelectToggle.setAttribute("aria-pressed", String(mode));
+    refs.filmstripSelectToggle.textContent = mode ? "退出多选" : "批量选择";
+  }
+  [refs.filmstripSelectAllButton, refs.filmstripSelectClearButton, refs.filmstripBatchDownloadButton].forEach((el) => {
+    el?.classList.toggle("hidden", !mode);
+  });
+  if (refs.filmstripSelectionCount) {
+    refs.filmstripSelectionCount.classList.toggle("hidden", !mode);
+    refs.filmstripSelectionCount.textContent = `已选 ${count}`;
+  }
+  if (refs.filmstripBatchDownloadButton) {
+    refs.filmstripBatchDownloadButton.disabled = count === 0 || state.filmstripBatchDownloading;
+    refs.filmstripBatchDownloadButton.textContent = state.filmstripBatchDownloading ? "保存中..." : `下载所选 (${count})`;
+  }
+}
+
+function syncFilmstripSelectionState(shell, key, item) {
+  const selectable = state.filmstripSelectionMode && isFilmstripItemSelectable(item);
+  const filename = String(item?.filename || "");
+  const selected = selectable && state.filmstripSelection.has(filename);
+
+  shell.classList.toggle("is-selectable", selectable);
+  shell.classList.toggle("is-checked", selected);
+  const button = shell.querySelector(".filmstrip-item");
+  button?.setAttribute("aria-pressed", selectable ? String(selected) : "false");
+
+  let check = shell.querySelector(".filmstrip-tile-check");
+  if (selectable) {
+    if (!check) {
+      check = document.createElement("span");
+      check.className = "filmstrip-tile-check";
+      check.setAttribute("aria-hidden", "true");
+      shell.appendChild(check);
+    }
+    check.textContent = selected ? "\u2713" : "";
+  } else if (check) {
+    check.remove();
+  }
+}
+
+function setFilmstripSelectionMode(enabled) {
+  state.filmstripSelectionMode = Boolean(enabled);
+  if (!state.filmstripSelectionMode) {
+    state.filmstripSelection.clear();
+  }
+  renderFilmstripSelectionToolbar();
+  renderFilmstrip();
+}
+
+function toggleFilmstripSelectionMode() {
+  setFilmstripSelectionMode(!state.filmstripSelectionMode);
+}
+
+function toggleFilmstripSelectionByKey(key) {
+  const filename = String(key || "").startsWith("file:") ? String(key).slice("file:".length) : "";
+  if (!filename) {
+    return;
+  }
+  toggleSelectionValue(state.filmstripSelection, filename);
+  renderFilmstripSelectionToolbar();
+  renderFilmstrip();
+}
+
+function selectAllFilmstripItems() {
+  const selectable = getFilmstripSelectableItems();
+  const shouldDeselect = areAllItemsSelected(selectable, state.filmstripSelection);
+  selectable.forEach((item) => {
+    const filename = String(item.filename || "");
+    if (!filename) {
+      return;
+    }
+    if (shouldDeselect) {
+      state.filmstripSelection.delete(filename);
+    } else {
+      state.filmstripSelection.add(filename);
+    }
+  });
+  renderFilmstripSelectionToolbar();
+  renderFilmstrip();
+}
+
+function clearFilmstripSelection() {
+  state.filmstripSelection.clear();
+  renderFilmstripSelectionToolbar();
+  renderFilmstrip();
+}
+
+async function batchDownloadSelectedFilmstripItems() {
+  if (state.filmstripBatchDownloading) {
+    return;
+  }
+  const items = selectGalleryItemsByFilenames(getFilmstripSelectableItems(), [...state.filmstripSelection]);
+  if (items.length === 0) {
+    showError("请先勾选要下载的图片。");
+    return;
+  }
+
+  if (items.length === 1) {
+    try {
+      await downloadGalleryItem(items[0], null);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  state.filmstripBatchDownloading = true;
+  renderFilmstripSelectionToolbar();
+  try {
+    const result = await batchSaveGalleryItems(items);
+    if (!result.cancelled && result.failed > 0) {
+      showError(`已保存 ${result.saved} 张，${result.failed} 张无法读取。`);
+    }
+  } catch (error) {
+    showError(error instanceof Error ? error.message : String(error));
+  } finally {
+    state.filmstripBatchDownloading = false;
+    renderFilmstripSelectionToolbar();
+  }
 }
 
 function renderFilmstrip() {
@@ -8317,8 +8479,28 @@ function applyStudioParamsFromItem(item) {
   });
 }
 
-// 载入配置不重投请求：它只把「这张图是怎么来的」还原到生成区域，让用户改完再提交。
-function applyItemConfigToStudio(item) {
+/* 把这张图本身塞回参考图区。旧线（legacy-v0.2.0）靠这一步让「载入配置」真的
+   能把「参考图 + 提示词」一起搬回去；重建时只搬参数不搬参考图，等于把
+   「这张图是用哪张参考图生成的」这条信息丢在源图里。 */
+async function addGalleryItemAsReference(item) {
+  const imageUrl = getImageUrl(item);
+  if (!imageUrl) {
+    return;
+  }
+  try {
+    const blob = await resolveDownloadImageBlob(item, null);
+    if (!blob) {
+      return;
+    }
+    const baseName = String(item.filename || `reference-${Date.now()}.png`);
+    const file = new File([blob], baseName, { type: blob.type || "image/png" });
+    applyReferenceFiles([file]);
+  } catch (_error) {
+    // 参考图恢复是尽力而为：参数已经落地，失败不该把整个「载入配置」打回。
+  }
+}
+
+async function applyItemConfigToStudio(item, { addReference = true } = {}) {
   if (!item) {
     return;
   }
@@ -8327,6 +8509,9 @@ function applyItemConfigToStudio(item) {
   }
   setActiveView("studio");
   applyStudioParamsFromItem(item);
+  if (addReference) {
+    await addGalleryItemAsReference(item);
+  }
   refs.promptInput.focus();
 }
 
@@ -22952,6 +23137,12 @@ function bindEvents() {
   refs.refreshGalleryButton.addEventListener("click", () => {
     loadGallery().catch((error) => showError(error.message));
   });
+  refs.filmstripSelectToggle?.addEventListener("click", toggleFilmstripSelectionMode);
+  refs.filmstripSelectAllButton?.addEventListener("click", selectAllFilmstripItems);
+  refs.filmstripSelectClearButton?.addEventListener("click", clearFilmstripSelection);
+  refs.filmstripBatchDownloadButton?.addEventListener("click", () => {
+    batchDownloadSelectedFilmstripItems().catch((error) => showError(error.message));
+  });
   refs.gallerySelectionModeButton.addEventListener("click", () => { if (state.galleryLoading || state.assetRecordDeletion.busy) return; state.gallerySelectionMode = !state.gallerySelectionMode; renderGalleryView(); });
   refs.galleryDeleteCurrentButton.addEventListener("click", () => requestAssetRecordDelete("gallery", "current"));
   refs.galleryDeleteSelectedButton.addEventListener("click", () => requestAssetRecordDelete("gallery", "selected"));
@@ -23042,7 +23233,15 @@ function bindEvents() {
     if (!item || !canApplyItemConfig(item)) {
       return;
     }
-    applyItemConfigToStudio(item);
+    void applyItemConfigToStudio(item).catch((error) => showError(error.message));
+  });
+  refs.lightboxApplyConfigButton?.addEventListener("click", () => {
+    const item = state.lightboxItem;
+    if (!item || !canApplyItemConfig(item)) {
+      return;
+    }
+    closeLightbox();
+    void applyItemConfigToStudio(item).catch((error) => showError(error.message));
   });
   refs.previewRetryButton?.addEventListener("click", () => {
     const job = getSelectedJob();

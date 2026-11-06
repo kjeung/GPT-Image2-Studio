@@ -868,7 +868,9 @@ test("studio keeps the initial preview idle until a job or thumbnail is selected
   assert.match(ensureSelectedPreview, /state\.selectedPreviewKey = makeJobPreviewKey\(latestJob\.id\);/);
   assert.doesNotMatch(ensureSelectedPreview, /sortGalleryItemsByCreatedAtDesc\(state\.gallery\)/);
   assert.doesNotMatch(ensureSelectedPreview, /preferredGalleryItem|makeGalleryPreviewKey\(preferredGalleryItem\.filename\)/);
-  assert.match(app, /button\.addEventListener\("click", \(\) => \{\s*setSelectedPreviewKey\(key\);\s*\}\);/);
+  // 胶片条点击在「批量选择」模式下切换勾选，否则照旧选中预览——两条分支都要在
+  // 同一个 handler 里，否则多选模式点一下会把用户踢出当前预览。
+  assert.match(app, /button\.addEventListener\("click", \(\) => \{[\s\S]{0,200}?if \(state\.filmstripSelectionMode\) \{[\s\S]{0,120}?toggleFilmstripSelectionByKey\(key\);[\s\S]{0,120}?setSelectedPreviewKey\(key\);\s*\}\);/);
 });
 
 test("generation activity moves into settings while studio workspace reflows to two columns", async () => {
@@ -2417,7 +2419,11 @@ test("interactive workbench controls stay in the accessibility tree", async () =
   assert.doesNotMatch(html, /<div class="topbar-ghost-actions"[^>]*aria-hidden="true"/);
   assert.match(html, /<nav class="asset-view-nav" aria-label="资产视图">/);
   assert.match(html, /<div class="gallery-scroll-region" id="galleryScrollRegion">/);
-  assert.doesNotMatch(html, /class="gallery-scroll-arrow"|id="galleryScrollThumb"/);
+  // 上游 v0.2.116 删掉了自绘滚动条，改用原生滚动；fork 的 `7ca4011` 保留了它，
+  // 收口核对时维护者选择补回（原生滚动条在长列表里手感差且不可拖）。于是滚动
+  // 轨必须是**可达**的：拖动柄是 button 且带 aria-label，滚动轨整体不带 aria-hidden。
+  assert.match(html, /id="galleryScrollThumb"[^>]*aria-label="拖动查看瀑布画廊"/);
+  assert.doesNotMatch(html, /class="gallery-scrollbar"[^>]*aria-hidden="true"/);
   assert.match(app, /button\.setAttribute\("aria-label", `查看图片 \$\{filename\}`\);/);
 });
 
@@ -3438,8 +3444,11 @@ test("compact Gallery uses native scrolling without a separate arrow rail", asyn
   const html = await readFile(indexPath, "utf8");
   const styles = await readFile(stylesPath, "utf8");
 
-  assert.equal((html.match(/class="gallery-scroll-arrow"/g) || []).length, 0);
-  assert.doesNotMatch(html, /id="galleryScrollThumb"|id="galleryScrollbar"/);
+  // 与上一条同源：fork 保留自绘滚动轨，维护者选择补回，所以这里断言它**在**
+  // 而不是「不在」。外壳仍是两列网格（滚动区域 + 滚动轨）。
+  assert.equal((html.match(/class="gallery-scroll-arrow"/g) || []).length, 2);
+  assert.match(html, /id="galleryScrollThumb"/);
+  assert.match(html, /id="galleryScrollbar"/);
   assert.match(styles, /\.gallery-scroll-shell\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\);/);
   assert.match(styles, /html\[data-ui-layout="mobile"\] \.gallery-scroll-region\s*\{[\s\S]*-webkit-overflow-scrolling:\s*touch;/);
 });

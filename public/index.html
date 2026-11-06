@@ -547,6 +547,13 @@
               </div>
 
               <div class="filmstrip-row">
+                <div class="filmstrip-select-controls" role="group" aria-label="批量下载生成图">
+                  <button class="toolbar-button" id="filmstripSelectToggle" type="button" aria-pressed="false">批量选择</button>
+                  <button class="toolbar-button hidden" id="filmstripSelectAllButton" type="button">全选</button>
+                  <button class="toolbar-button hidden" id="filmstripSelectClearButton" type="button">取消选择</button>
+                  <span class="filmstrip-selection-count hidden" id="filmstripSelectionCount">已选 0</span>
+                  <button class="toolbar-button strong hidden" id="filmstripBatchDownloadButton" type="button" disabled>下载所选</button>
+                </div>
                 <div class="filmstrip" id="filmstrip"></div>
               </div>
             </section>
@@ -2588,6 +2595,19 @@
                 </div>
                 <div class="gallery-sections" id="gallerySections"></div>
               </div>
+
+              <div class="gallery-scrollbar" id="galleryScrollbar" data-disabled="true" aria-label="瀑布画廊滚动控制">
+                <button class="gallery-scroll-arrow" id="galleryScrollUp" type="button" aria-label="向上滚动">↑</button>
+                <div class="gallery-scroll-track" id="galleryScrollTrack">
+                  <button
+                    class="gallery-scroll-thumb"
+                    id="galleryScrollThumb"
+                    type="button"
+                    aria-label="拖动查看瀑布画廊"
+                  ></button>
+                </div>
+                <button class="gallery-scroll-arrow" id="galleryScrollDown" type="button" aria-label="向下滚动">↓</button>
+              </div>
             </div>
           </section>
         </section>
@@ -3131,6 +3151,7 @@
               <button class="toolbar-button" id="lightboxActualSizeButton" type="button" aria-label="按原始尺寸查看" title="按原始尺寸查看">100%</button>
             </div>
             <a class="toolbar-button asset-primary-action" id="lightboxDownload" href="#" download>下载</a>
+            <button class="toolbar-button hidden" id="lightboxApplyConfigButton" type="button" title="载入该图配置与参考图到 Studio">载入配置</button>
             <button class="toolbar-button lightbox-dismiss-button hidden" id="lightboxDismissButton" type="button" aria-label="关闭图片详情" title="关闭">关闭</button>
           </div>
         </div>
