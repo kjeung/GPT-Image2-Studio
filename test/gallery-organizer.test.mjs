@@ -19,7 +19,10 @@ import {
   normalizeGalleryFilters,
   normalizeGalleryReferenceFilter,
   normalizeGalleryWindowFilter,
+  normalizeGalleryRenderLimit,
+  paginateGalleryRenderWindow,
   sortGalleryItemsByCreatedAtDesc,
+  DEFAULT_GALLERY_RENDER_LIMIT,
 } from "../lib/gallery-organizer.mjs";
 
 const referenceNow = new Date("2026-04-25T10:00:00.000Z");
@@ -362,4 +365,43 @@ test("gallery organizer preserves complete dates when three rows cannot contain 
       { key: "previous", rowCount: 3, columnCount: 18 },
     ],
   );
+});
+
+test("gallery render window defaults to ten tiles and reports the page remainder", () => {
+  const items = Array.from({ length: 12 }, (_, index) => ({
+    filename: `page-${index}.png`,
+    createdAt: `2026-04-25T${String(23 - index).padStart(2, "0")}:00:00.000Z`,
+  }));
+
+  const renderWindow = paginateGalleryRenderWindow(items);
+
+  assert.equal(DEFAULT_GALLERY_RENDER_LIMIT, 10);
+  assert.equal(renderWindow.visibleCount, 10);
+  assert.equal(renderWindow.totalCount, 12);
+  assert.equal(renderWindow.hiddenCount, 2);
+  assert.equal(renderWindow.hasMore, true);
+  assert.equal(renderWindow.nextLimit, 20);
+  assert.deepEqual(
+    renderWindow.items.map((item) => item.filename),
+    items.slice(0, 10).map((item) => item.filename),
+  );
+});
+
+test("gallery render window accepts an explicit width and clamps invalid limits", () => {
+  const items = Array.from({ length: 30 }, (_, index) => ({
+    filename: `wide-${index}.png`,
+    createdAt: `2026-04-25T${String(23 - index).padStart(2, "0")}:00:00.000Z`,
+  }));
+
+  const wide = paginateGalleryRenderWindow(items, 20);
+  assert.equal(wide.visibleCount, 20);
+  assert.equal(wide.hiddenCount, 10);
+
+  const clamped = paginateGalleryRenderWindow(items, Number.NaN);
+  assert.equal(clamped.visibleCount, DEFAULT_GALLERY_RENDER_LIMIT);
+
+  // A zero/negative limit falls back to the default rather than painting nothing.
+  assert.equal(normalizeGalleryRenderLimit(0), DEFAULT_GALLERY_RENDER_LIMIT);
+  assert.equal(normalizeGalleryRenderLimit(-5), DEFAULT_GALLERY_RENDER_LIMIT);
+  assert.equal(normalizeGalleryRenderLimit(10), 10);
 });

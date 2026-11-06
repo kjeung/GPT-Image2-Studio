@@ -12611,6 +12611,41 @@ html[data-ui-layout="mobile"] .filmstrip-selected-marker {
   gap: 6px;
 }
 
+/* 页内扩窗控件。与翻页控件并列，但同一时刻只会有一个「前进」动作可见：
+   本页画尽时按钮隐藏、状态行改指下一页。 */
+.gallery-load-more {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.gallery-load-more-status {
+  color: var(--muted);
+  font-size: var(--type-subtitle-size);
+  white-space: nowrap;
+}
+
+.gallery-load-more-button {
+  min-height: var(--gallery-chip-height);
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text);
+  font-size: var(--type-subtitle-size);
+}
+
+.gallery-load-more-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.gallery-load-more-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 .gallery-page-button {
   min-height: var(--gallery-chip-height);
   padding: 0 10px;
@@ -17418,7 +17453,9 @@ html[data-ui-layout="mobile"] .gallery-filters {
 html[data-ui-layout="tablet"] .gallery-filter-chip,
 html[data-ui-layout="mobile"] .gallery-filter-chip,
 html[data-ui-layout="tablet"] .gallery-pagination,
-html[data-ui-layout="mobile"] .gallery-pagination {
+html[data-ui-layout="mobile"] .gallery-pagination,
+html[data-ui-layout="tablet"] .gallery-load-more,
+html[data-ui-layout="mobile"] .gallery-load-more {
   flex: 0 0 auto;
 }
 
@@ -18119,6 +18156,7 @@ html[data-ui-input="coarse"][data-ui-layout="stacked"] :is(
   .gallery-filter-chip,
   .gallery-reset-button,
   .gallery-pagination button,
+  .gallery-load-more button,
   input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]),
   textarea,
   select,
@@ -18149,6 +18187,7 @@ html[data-ui-layout="mobile"] :is(
   .gallery-filter-chip,
   .gallery-reset-button,
   .gallery-pagination button,
+  .gallery-load-more button,
   input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]),
   textarea,
   select,
@@ -18179,6 +18218,7 @@ html[data-ui-input="coarse"][data-ui-layout="tablet"] :is(
   .gallery-filter-chip,
   .gallery-reset-button,
   .gallery-pagination button,
+  .gallery-load-more button,
   input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]),
   textarea,
   select,

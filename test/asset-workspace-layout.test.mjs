@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { parse } from "parse5";
 
 const indexPath = new URL("../public/index.html", import.meta.url);
 const stylesPath = new URL("../public/styles.css", import.meta.url);
@@ -126,7 +127,34 @@ test("waterfall gallery paginates ordinary history by five dates without changin
   assert.match(app, /if \(changed && state\.activeView === "gallery" && !state\.galleryLoading\) renderGalleryView\(\)/);
   assert.match(app, /refs\.galleryView\.dataset\.galleryLayout = layoutMode;/);
   assert.match(app, /sectionLayouts\.forEach\(\(layout, index\) => \{[\s\S]*createGallerySection\(sections\[index\], layout\.columnCount\)/);
-  assert.match(app, /每页显示 5 个日期[\s\S]*自动 \$\{layoutText\}，每 2 个日期最多 3 行/);
+  assert.match(app, /每页显示 5 个日期[\s\S]*自动 \$\{layoutText\}，每 2 个日期最多 3 行[\s\S]*本页已画 \$\{displayedCount\} \/ \$\{visibleItems\.length\} 张/);
+});
+
+test("waterfall gallery paints a page-scoped window instead of chaining the two axes", async () => {
+  const [html, app] = await Promise.all([readFile(indexPath, "utf8"), readFile(appPath, "utf8")]);
+  // The quantity axis applies to the current date page, after pagination — not
+  // before it. Chaining window-then-page is the bug this ordering prevents.
+  assert.match(app, /const pagination = shouldPaginateHistory[\s\S]*?paginateGallerySections\(allSections, state\.galleryHistoryPage\)[\s\S]*?: getSearchGalleryPagination\(allSections\);/);
+  assert.match(app, /const renderWindow = applyGalleryRenderWindowToSections\(pagination\.sections, state\.galleryRenderLimit\);/);
+  assert.match(app, /const sections = renderWindow\.sections;/);
+  assert.doesNotMatch(app, /paginateGalleryRenderWindow\(visibleItems/);
+  // Layout density is still computed from the complete date groups, so a
+  // "load more" click never changes tile sizes.
+  assert.match(app, /getGalleryHistorySectionLayouts\(allSections\)/);
+  // Growing the window is pure client work: no fetch, no disk.
+  assert.match(app, /function loadMoreGalleryWindow\(\) {\n  if \(state\.galleryLoading\) {\n    return;/);
+  assert.doesNotMatch(app, /\/api\/gallery\?limit=/);
+  // The load-more control yields to pagination once the page is drawn out, and
+  // pagination is locked while widening is still pending: the two forward
+  // actions are ordered, never simultaneous.
+  assert.match(html, /id="galleryLoadMoreButton"/);
+  assert.match(app, /refs\.galleryNextPageButton\.disabled = !pagination\.hasNext \|\| pageTurnBlocked;/);
+  assert.match(app, /renderGalleryPagination\(pagination, shouldPaginateHistory, loadMoreControl\.pageTurnBlocked\)/);
+  assert.match(app, /refs\.galleryLoadMoreButton\?\.addEventListener\("click", \(\) => {\n    loadMoreGalleryWindow\(\);\n  }\);/);
+  // A date page's header reports both the painted share and the day's true size.
+  assert.match(app, /`\$\{paintedCount\} \/ \$\{section\.count\} 张`/);
+  // Switching date pages restarts the window at its default width.
+  assert.match(app, /function setGalleryHistoryPage\(page\) {\n  state\.galleryHistoryPage = Math\.max\(0, Number\(page\) \|\| 0\);\n  state\.galleryRenderLimit = DEFAULT_GALLERY_RENDER_LIMIT;/);
 });
 
 test("asset empty states distinguish no data, no results, loading, and failure", async () => {
@@ -188,4 +216,84 @@ test("lightbox prioritizes the image and exposes concise accessible controls", a
   assert.match(controller, /Array\.isArray\(value\)[\s\S]*return formatted \? \[\{ label: path \|\| "内容", value: formatted \}\] : \[\];/);
   assert.match(lightboxViewer, /new ResizeObserver\(\(\) => \{[\s\S]*syncMetrics\(\{ preserveMode: true \}\);[\s\S]*resizeObserver\.observe\(refs\.lightboxImageShell\);/);
   assert.doesNotMatch(lightboxViewer, /syncCompactStageHeight|--lightbox-media-height|preferredHeight/);
+});
+
+test("gallery toolbar markup parses cleanly with unique ids", async () => {
+  // A string-level assertion cannot catch a mangled edit that leaves an orphan
+  // </div>, a duplicated control, or a subtree hoisted out of the view. Parse the
+  // document and check the structure the shell actually relies on.
+  const html = await readFile(indexPath, "utf8");
+  const document = parse(html);
+
+  const ids = new Map();
+  const duplicates = [];
+  const galleryControls = [];
+  let galleryViewNode = null;
+
+  function walk(node, ancestors) {
+    const attributes = new Map((node.attrs || []).map((attribute) => [attribute.name, attribute.value]));
+    if (attributes.has("id")) {
+      const id = attributes.get("id");
+      if (ids.has(id)) {
+        duplicates.push(id);
+      } else {
+        ids.set(id, true);
+      }
+      for (const controlId of ["galleryLoadMoreButton", "galleryLoadMoreStatus", "galleryNextPageButton", "galleryPagination"]) {
+        if (id === controlId) {
+          galleryControls.push({ id, ancestors });
+        }
+      }
+    }
+    if (attributes.get("class")?.split(/\s+/).includes("gallery-view")) {
+      galleryViewNode = galleryViewNode || ids.get("galleryViewProbe");
+    }
+    for (const child of node.childNodes || []) {
+      walk(child, [...ancestors, node]);
+    }
+  }
+
+  walk(document, []);
+
+  assert.deepEqual(duplicates, [], `duplicate ids: ${duplicates.join(", ")}`);
+
+  // Each forward control must live inside one single toolbar element, so the
+  // shell can hide it without hiding the other.
+  for (const controlId of ["galleryLoadMoreButton", "galleryNextPageButton"]) {
+    const entry = galleryControls.find((candidate) => candidate.id === controlId);
+    assert.equal(entry.ancestors.length > 0, true, `${controlId} must have a parent`);
+  }
+});
+
+test("gallery scroll surface stays inside the gallery view panel", async () => {
+  const html = await readFile(indexPath, "utf8");
+  const document = parse(html);
+
+  function findById(node, id) {
+    if ((node.attrs || []).some((attribute) => attribute.name === "id" && attribute.value === id)) {
+      return node;
+    }
+    for (const child of node.childNodes || []) {
+      const found = findById(child, id);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  function hasGalleryViewAncestor(root, target, ancestors = []) {
+    if (root === target) {
+      return ancestors.some((node) => String(node.attrs?.find((attribute) => attribute.name === "class")?.value || "").split(/\s+/).includes("gallery-view"));
+    }
+    return (root.childNodes || []).some((child) => hasGalleryViewAncestor(child, target, [...ancestors, root]));
+  }
+
+  const sections = findById(document, "gallerySections");
+  assert.ok(sections, "#gallerySections must exist");
+  assert.equal(
+    hasGalleryViewAncestor(document, sections),
+    true,
+    "#gallerySections must stay inside .gallery-view, otherwise leaving the gallery no longer hides it",
+  );
 });

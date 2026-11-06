@@ -1,7 +1,8 @@
 import { requestTextModel, createTextModelPreview, fitCreationReadingPanel, showTextModelProgress } from "/lib/text-model-client.mjs";
 import { buildParameterEntries, buildParameterText, formatImageModelLabel, formatRecentOutputMeta, resolveDisplayImageSize } from "/lib/studio-formatters.mjs";
 import { formatLoadingThumbnailStatusLabel, getPreviewPlaceholderState, getStablePreviewLoadingItems, isWaitingPreviewItem } from "/lib/preview-placeholder-state.mjs?v=20260926-filmstrip-request-order-1";
-import { buildGalleryReferenceFilterOptions, buildGallerySections, buildGallerySizeFilterOptions, buildGalleryTimeFilterOptions, distributeGalleryItemsIntoColumns, filterGalleryItems, getGalleryHistorySectionLayouts, getGalleryLayoutModeForWidth, getPromptGenerationGalleryItems, getRecentGalleryItems, normalizeGalleryFilters, paginateGallerySections, sortGalleryItemsByCreatedAtDesc } from "/lib/gallery-organizer.mjs?v=20260806-gallery-five-date-page-1";
+import { buildGalleryReferenceFilterOptions, buildGallerySections, buildGallerySizeFilterOptions, buildGalleryTimeFilterOptions, distributeGalleryItemsIntoColumns, filterGalleryItems, getGalleryHistorySectionLayouts, getGalleryLayoutModeForWidth, getPromptGenerationGalleryItems, getRecentGalleryItems, normalizeGalleryFilters, paginateGallerySections, sortGalleryItemsByCreatedAtDesc, DEFAULT_GALLERY_RENDER_LIMIT } from "/lib/gallery-organizer.mjs?v=20261105-gallery-page-scoped-window-1";
+import { applyGalleryRenderWindowToSections, resolveGalleryLoadMoreState, resolveNextGalleryRenderLimit } from "/lib/gallery-window.mjs?v=20261105-gallery-page-scoped-window-1";
 import { buildGalleryMetadataCacheEntry, collectGalleryMetadataRepairPatch, mergeGalleryItemWithCachedMetadata, pruneGalleryMetadataCache } from "/lib/gallery-metadata-recovery.mjs";
 import { getGenerationSizeOptions, getModelProtocolImageSizeOptions, normalizeGenerationSize, normalizeModelProtocolImageSize } from "/lib/generation-size-options.mjs?v=20260614-image2-sizes-1";
 import { getOutputFormatOptions, normalizeOutputFormat, } from "/lib/output-format-options.mjs?v=20260504-vercel-static-lib-1";
@@ -909,6 +910,8 @@ const state = {
   galleryMetadataCache: {},
   galleryControls: { ...DEFAULT_GALLERY_CONTROLS },
   galleryHistoryPage: 0,
+  /* 数量轴：只约束当前日期页画多少张，与 5 天/页的日期轴正交。 */
+  galleryRenderLimit: DEFAULT_GALLERY_RENDER_LIMIT,
   galleryColumnPreset: DEFAULT_GALLERY_COLUMN_PRESET,
   generationTasks: [],
   locallyTerminatedGenerationTaskIds: new Set(),
@@ -1400,6 +1403,8 @@ const refs = {
   galleryEmpty: document.querySelector("#galleryEmpty"),
   galleryFilters: document.querySelector("#galleryFilters"),
   galleryHelperText: document.querySelector("#galleryHelperText"),
+  galleryLoadMoreButton: document.querySelector("#galleryLoadMoreButton"),
+  galleryLoadMoreStatus: document.querySelector("#galleryLoadMoreStatus"),
   galleryNextPageButton: document.querySelector("#galleryNextPageButton"),
   galleryPageStatus: document.querySelector("#galleryPageStatus"),
   galleryPagination: document.querySelector("#galleryPagination"),
@@ -7855,7 +7860,7 @@ function getSearchGalleryPagination(sections) {
   };
 }
 
-function renderGalleryPagination(pagination, shouldPaginateHistory) {
+function renderGalleryPagination(pagination, shouldPaginateHistory, pageTurnBlocked = false) {
   if (
     !refs.galleryPagination ||
     !refs.galleryPreviousPageButton ||
@@ -7868,16 +7873,22 @@ function renderGalleryPagination(pagination, shouldPaginateHistory) {
   const isHidden = !shouldPaginateHistory || pagination.totalPages <= 1;
   refs.galleryPagination.classList.toggle("hidden", isHidden);
   refs.galleryPreviousPageButton.disabled = !pagination.hasPrevious;
-  refs.galleryNextPageButton.disabled = !pagination.hasNext;
+  // 页内扩窗与翻页是两个按序的前进动作：本页还有没画的条目时先扩窗，
+  // 翻页锁住；否则用户会同时看到两个都能「往前走」的按钮。
+  refs.galleryNextPageButton.disabled = !pagination.hasNext || pageTurnBlocked;
   refs.galleryPageStatus.textContent = `第 ${pagination.page + 1} / ${pagination.totalPages} 页`;
 }
 
 function resetGalleryHistoryPage() {
   state.galleryHistoryPage = 0;
+  // 换日期页或换筛选条件都从默认窗口起：页内扩窗只对「当前这一页」有意义，
+  // 把它带到另一页会让下一页一打开就画 30 张。
+  state.galleryRenderLimit = DEFAULT_GALLERY_RENDER_LIMIT;
 }
 
 function setGalleryHistoryPage(page) {
   state.galleryHistoryPage = Math.max(0, Number(page) || 0);
+  state.galleryRenderLimit = DEFAULT_GALLERY_RENDER_LIMIT;
   renderGalleryView();
   refs.galleryScrollRegion?.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -7931,17 +7942,17 @@ function renderGalleryFilters(visibleItems, sections, pagination, shouldPaginate
   const prefix = summary ? `已按 ${summary} 筛选，` : "";
   const displayedCount = getGallerySectionItemCount(sections);
   if (!shouldPaginateHistory) {
-    refs.galleryHelperText.textContent = `${prefix}搜索模式仅显示命中的 ${visibleItems.length} / ${state.gallery.length} 张。`;
+    refs.galleryHelperText.textContent = `${prefix}搜索模式仅显示命中的 ${visibleItems.length} / ${state.gallery.length} 张，当前已画 ${displayedCount} 张。`;
     return;
   }
 
   if (pagination.totalPages > 1) {
     const layoutText = sectionLayouts.map((layout) => `${layout.columnCount} 列`).join(" / ");
-    refs.galleryHelperText.textContent = `${prefix}每页显示 5 个日期，第 ${pagination.page + 1} / ${pagination.totalPages} 页，自动 ${layoutText}，每 2 个日期最多 3 行，当前 ${displayedCount} / ${visibleItems.length} 张。`;
+    refs.galleryHelperText.textContent = `${prefix}每页显示 5 个日期，第 ${pagination.page + 1} / ${pagination.totalPages} 页，自动 ${layoutText}，每 2 个日期最多 3 行，本页已画 ${displayedCount} / ${visibleItems.length} 张。`;
     return;
   }
 
-  refs.galleryHelperText.textContent = `${prefix}按日期分组显示，当前共 ${sections.length} 组，显示 ${visibleItems.length} / ${state.gallery.length} 张。`;
+  refs.galleryHelperText.textContent = `${prefix}按日期分组显示，当前共 ${sections.length} 组，本页已画 ${displayedCount} / ${visibleItems.length} 张（全库 ${state.gallery.length} 张）。`;
 }
 
 function createGallerySection(section, columnCount) {
@@ -7962,7 +7973,12 @@ function createGallerySection(section, columnCount) {
 
   const count = document.createElement("span");
   count.className = "count-pill small";
-  count.textContent = `${section.count} 张`;
+  // 页内窗口只画了当天的一部分时，表头必须两种数字都报，否则「10 / 800」
+  // 会在日期行上被说成「800 张」，用户会以为没加载完却已经画完了。
+  const paintedCount = Number.isFinite(section.windowCount) ? section.windowCount : section.items.length;
+  count.textContent = paintedCount === section.count
+    ? `${section.count} 张`
+    : `${paintedCount} / ${section.count} 张`;
   header.appendChild(count);
 
   wrapper.appendChild(header);
@@ -7986,6 +8002,7 @@ function createGallerySection(section, columnCount) {
 function renderGalleryView() {
   const filters = getGalleryFilterSnapshot();
   const visibleItems = getVisibleGalleryItems();
+  // 两级正交，不能串联。日期轴（上游）先选「看哪些天」：全库筛选 → 按日分组 → 5 天/页。
   const allSections = buildGallerySections(visibleItems);
   const shouldPaginateHistory = !filters.query;
   const pagination = shouldPaginateHistory
@@ -7994,20 +8011,27 @@ function renderGalleryView() {
   if (shouldPaginateHistory && pagination.page !== state.galleryHistoryPage) {
     state.galleryHistoryPage = pagination.page;
   }
-  const sections = pagination.sections;
-  const displayedCount = getGallerySectionItemCount(sections);
+  // 数量轴（本地）再限「当前这一页画多少张」。顺序反过来（先窗口后翻页）会把
+  // 已经加载到手的条目又藏掉一半，那正是本工单要修掉的 bug。
+  const renderWindow = applyGalleryRenderWindowToSections(pagination.sections, state.galleryRenderLimit);
+  const sections = renderWindow.sections;
+  const displayedCount = renderWindow.visibleCount;
   const layoutMode = getGalleryLayoutModeForWidth(getGalleryLayoutWidth());
   refs.galleryView.dataset.galleryLayout = layoutMode;
+  // 布局仍按**完整**日期分组计算，页内扩窗只是少画几张，不改变瓦片密度：
+  // 点「加载更多」时格子不该跳尺寸。
   const historyLayouts = shouldPaginateHistory && layoutMode === "desktop" ? getGalleryHistorySectionLayouts(allSections) : [];
   const layoutBySectionKey = new Map(historyLayouts.map((layout) => [layout.key, layout]));
   const sectionLayouts = sections.map((section) => layoutBySectionKey.get(section.key) || ({ key: section.key, columnCount: layoutMode === "mobile" ? 2 : layoutMode === "tablet" ? 4 : getGalleryColumnCount() }));
   refs.galleryColumnSwitch?.classList.toggle("hidden", shouldPaginateHistory);
 
   refs.gallerySections.innerHTML = "";
+  // 分母是**筛选后的总数**，不是全库：分母写成全库会把「窗口画了 10 张」和
+  // 「筛选后共 3000 张」混成同一个数字，让人以为筛选没生效。
   refs.galleryCount.textContent =
-    displayedCount === state.gallery.length
-      ? `${state.gallery.length} 张`
-      : `${displayedCount} / ${state.gallery.length} 张`;
+    displayedCount === visibleItems.length
+      ? `${visibleItems.length} 张`
+      : `${displayedCount} / ${visibleItems.length} 张`;
   const visibleFilenames = new Set(visibleItems.map((item) => item.filename));
   const checkedCount = state.galleryCheckedFilenames.filter((filename) => visibleFilenames.has(filename)).length;
   const deleteBlocked = state.galleryLoading || state.assetRecordDeletion.busy;
@@ -8065,7 +8089,10 @@ function renderGalleryView() {
   }
   refs.galleryEmpty.append(emptyTitle, emptyCopy, emptyAction);
   refs.galleryEmpty.classList.toggle("hidden", displayedCount > 0);
-  renderGalleryPagination(pagination, shouldPaginateHistory);
+  // 先算扩窗控件，再把它的「是否还在扩窗」结论交给翻页控件复用：
+  // 两个前进动作的顺序由同一份状态决定，不会各说各话。
+  const loadMoreControl = renderGalleryLoadMore(renderWindow, pagination, shouldPaginateHistory);
+  renderGalleryPagination(pagination, shouldPaginateHistory, loadMoreControl.pageTurnBlocked);
   renderGalleryFilters(visibleItems, sections, pagination, shouldPaginateHistory, sectionLayouts);
   renderGalleryColumnPresetButtons();
 
@@ -8075,6 +8102,58 @@ function renderGalleryView() {
 
   scheduleGalleryPanelHeightSync();
   scheduleGalleryScrollSync();
+}
+
+/* 页内扩窗的唯一控件。它只在**当前日期页还有没画的条目**时出现；本页画尽后
+   让位给翻页按钮，两个「前进」动作因此不会同时出现在工具栏里。 */
+function renderGalleryLoadMore(renderWindow, pagination, shouldPaginateHistory) {
+  const control = resolveGalleryLoadMoreState({
+    renderWindow,
+    hasNextHistoryPage: Boolean(shouldPaginateHistory && pagination.hasNext),
+    loading: state.galleryLoading,
+  });
+
+  if (refs.galleryLoadMoreButton && refs.galleryLoadMoreStatus) {
+    refs.galleryLoadMoreButton.classList.toggle("hidden", !control.shouldShow);
+    refs.galleryLoadMoreButton.disabled = control.disabled;
+    refs.galleryLoadMoreStatus.classList.toggle("hidden", !control.shouldShow && !control.pageIsDrawnOut);
+    refs.galleryLoadMoreButton.textContent = control.buttonText;
+    refs.galleryLoadMoreStatus.textContent = control.statusText;
+  }
+
+  return control;
+}
+
+/* 扩窗是纯客户端行为：全库已经在 state.gallery 里，所以这里只抬高窗口宽度
+   再重画，不碰网络也不碰磁盘。 */
+function loadMoreGalleryWindow() {
+  if (state.galleryLoading) {
+    return;
+  }
+
+  const renderWindow = applyGalleryRenderWindowToSections(getCurrentGalleryPageSections(), state.galleryRenderLimit);
+  // The page is already fully painted, so the control should have been hidden.
+  // Widening anyway would repaint the same tiles for no visible gain.
+  if (!renderWindow.hasMore) {
+    return;
+  }
+
+  state.galleryRenderLimit = resolveNextGalleryRenderLimit({
+    renderLimit: state.galleryRenderLimit,
+    paintedCount: renderWindow.visibleCount,
+  });
+  renderGalleryView();
+}
+
+/* 当前日期页（未加窗口）的日期分组，与 renderGalleryView 的日期轴逐步一致，
+   供扩窗与删除后回填复用。 */
+function getCurrentGalleryPageSections() {
+  const filters = getGalleryFilterSnapshot();
+  const allSections = buildGallerySections(getVisibleGalleryItems());
+  if (filters.query) {
+    return getSearchGalleryPagination(allSections).sections;
+  }
+  return paginateGallerySections(allSections, state.galleryHistoryPage).sections;
 }
 
 function renderStudio() {
@@ -21986,6 +22065,9 @@ function bindEvents() {
   });
   refs.galleryNextPageButton.addEventListener("click", () => {
     setGalleryHistoryPage(state.galleryHistoryPage + 1);
+  });
+  refs.galleryLoadMoreButton?.addEventListener("click", () => {
+    loadMoreGalleryWindow();
   });
   refs.focusGalleryButton?.addEventListener("click", () => {
     setActiveView("gallery");

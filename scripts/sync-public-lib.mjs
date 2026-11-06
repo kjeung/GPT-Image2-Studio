@@ -73,6 +73,7 @@ export const PUBLIC_LIB_SYNC_TARGETS = [
   "filmstrip-selection.mjs",
   "gallery-metadata-recovery.mjs",
   "gallery-organizer.mjs",
+  "gallery-window.mjs",
   "generation-activity-feed.mjs",
   "generation-concurrency.mjs",
   "generation-client.mjs",
