@@ -138,7 +138,6 @@ import { fetchTrustedProductImage } from "./lib/product-image-proxy.mjs";
 import { buildProductImageCollectorArchive } from "./lib/product-image-extension-package.mjs";
 import {
   authorizeLocalServerRequest,
-  getLocalServerPlainHttpBindingPolicy,
   isLoopbackHostname,
 } from "./lib/local-server-auth.mjs";
 
@@ -307,16 +306,13 @@ const port = Number(process.env.PORT || 3600);
 const explicitHost = isDeployedVercelRuntime ? "" : String(process.env.HOST || "").trim();
 const serverHost = explicitHost || "127.0.0.1";
 let isServerlessRuntime = false;
+// 令牌在容器拓扑下已不参与鉴权（见 lib/local-server-auth.mjs）。保留这个值
+// 只因为启动日志仍会打印它、测试也仍按可选变量读取；不要再基于它做访问决策。
 const requestToken = String(process.env.IMAGE_STUDIO_REQUEST_TOKEN || randomUUID()).trim();
-const plainHttpBindingPolicy = getLocalServerPlainHttpBindingPolicy({
-  host: serverHost,
-  allowInsecureRemoteHttp: process.env.IMAGE_STUDIO_ALLOW_INSECURE_REMOTE_HTTP,
-});
-if (!plainHttpBindingPolicy.allowed) {
-  throw new Error(
-    "非回环 HOST 不能直接使用明文 HTTP。请保持 HOST 为空并通过 TLS 反向代理访问；仅在明确接受风险时设置 IMAGE_STUDIO_ALLOW_INSECURE_REMOTE_HTTP=1。",
-  );
-}
+// 本 fork 运行在容器里，TLS 由前置 Traefik 终止，应用收到的必然是明文 HTTP，
+// 且 HOST 必然是 0.0.0.0（否则容器端口映射接不进来）。因此这里不再拒绝
+// 非回环 + 明文的组合：那套守卫的前提（应用自己对外）在容器拓扑下不成立。
+// 访问控制交给 Traefik + Authentik，见 lib/local-server-auth.mjs 的说明。
 const SESSION_TASK_SLOT_RETRY_DELAY_MS = 250;
 // Shared with lib/upstream-stream-fetch.mjs so the socket body timeout is always
 // derived from the SAME effective deadline this abort uses.
@@ -7972,11 +7968,9 @@ if (isDeployedVercelRuntime) {
 
     const now = new Date();
     console.log(`Responses Image Studio 正在运行: http://${serverHost}:${listeningPort}`);
-    if (plainHttpBindingPolicy.insecure) {
-      console.warn("警告：远程访问正在使用明文 HTTP，访问令牌、提示词和生成资产可能被网络监听。请改用 TLS 反向代理。");
-    }
-    console.log("远程浏览器认证用户名: studio");
-    console.log(`远程访问令牌: ${requestToken}`);
+    // 认证已移交给前置 Traefik + Authentik；这里不再打印令牌与用户名，
+    // 免得读日志的人以为应用自己还会鉴权。
+    console.log("访问控制: 由前置 Traefik + Authentik 负责");
     console.log(`输出根目录: ${outputDir}`);
     console.log(`当前输出目录: ${join(outputDir, formatMonthFolder(now), formatDayFolder(now))}`);
     console.log(`配置文件: ${configStore.configPath}`);

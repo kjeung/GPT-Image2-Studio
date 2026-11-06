@@ -1,0 +1,39 @@
+# 构建上下文排除项。node_modules 与本地数据绝不进镜像。
+node_modules
+output
+outputs
+artifacts
+dist
+test-results
+
+.env
+.env.*
+!.env.example
+
+.local/
+.superpowers/
+.codex/
+.dsh-mattskillsdeck-cache/
+AGENTS.md
+docs/agents/
+
+.git
+.github
+.worktrees
+.vercel
+
+*.log
+*-after.png
+gallery-toolbar-*.png
+timeline-*-check.png
+
+# 测试与 OpenSpec 工具链只在 CI 里跑，不进镜像。
+test
+openspec
+examples
+
+# Windows 桌面/安装器脚本，容器不用。
+launch-studio.cmd
+launch-studio.ps1
+stop-studio-services.cmd
+docs/windows-installer.md

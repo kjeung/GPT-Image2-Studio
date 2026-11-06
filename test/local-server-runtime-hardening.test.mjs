@@ -170,7 +170,7 @@ async function startServer(t) {
   return { baseUrl, diagnostics, outputDir, port };
 }
 
-test("plain HTTP non-loopback binding fails closed without explicit opt-in", async (t) => {
+test("plain HTTP non-loopback binding is allowed: TLS terminates upstream in the container", async (t) => {
   const tempRoot = await mkdtemp(join(tmpdir(), "image-studio-remote-bind-"));
   const env = {
     ...process.env,
@@ -194,14 +194,13 @@ test("plain HTTP non-loopback binding fails closed without explicit opt-in", asy
     await rm(tempRoot, { recursive: true, force: true });
   });
 
-  const [exitCode] = await Promise.race([
-    once(server, "exit"),
-    delay(7000).then(() => { throw new Error("remote bind did not fail before listening"); }),
-  ]);
-
-  assert.notEqual(exitCode, 0);
-  assert.match(diagnostics.stderr, /IMAGE_STUDIO_ALLOW_INSECURE_REMOTE_HTTP=1/);
-  assert.match(diagnostics.stderr, /TLS/);
+  // 容器里 HOST=0.0.0.0 + 明文是常态（TLS 终结在前置 Traefik），启动守卫已移除，
+  // 所以这里应当顺利完成监听而不是退出。
+  const port = Number(env.PORT);
+  await waitForServer(`http://127.0.0.1:${port}`, server, diagnostics);
+  assert.match(diagnostics.stdout, new RegExp(`http://0\\.0\\.0\\.0:${port}`));
+  assert.match(diagnostics.stdout, /访问控制: 由前置 Traefik \+ Authentik 负责/u);
+  assert.doesNotMatch(diagnostics.stderr, /IMAGE_STUDIO_ALLOW_INSECURE_REMOTE_HTTP/u);
 });
 
 test("local portrait mock emits non-empty success and error SSE and persists the completed set", async (t) => {
@@ -283,13 +282,16 @@ test("portrait generation and repair retain the saved filenames after collisions
   }
 });
 
-test("local server defaults to loopback and rejects cross-origin or non-loopback-host POST requests", async (t) => {
+test("local server defaults to loopback and no longer gates cross-origin requests", async (t) => {
   const { baseUrl, diagnostics, port } = await startServer(t);
 
   assert.match(diagnostics.stdout, new RegExp(`http://127\\.0\\.0\\.1:${port}`));
-  assert.match(diagnostics.stdout, /远程浏览器认证用户名: studio/);
-  assert.match(diagnostics.stdout, /远程访问令牌: runtime-test-token/);
+  // 认证日志已移除；改为声明访问控制的归属。
+  assert.match(diagnostics.stdout, /访问控制: 由前置 Traefik \+ Authentik 负责/u);
+  assert.doesNotMatch(diagnostics.stdout, /远程浏览器认证用户名/u);
+  assert.doesNotMatch(diagnostics.stdout, /远程访问令牌/u);
 
+  // 非回环地址仍拒绝是**网络层**行为（只监听 127.0.0.1），不是应用鉴权。
   const localAddress = getNonLoopbackIpv4Address();
   if (localAddress) {
     await assert.rejects(
@@ -298,24 +300,18 @@ test("local server defaults to loopback and rejects cross-origin or non-loopback
     );
   }
 
+  // 应用不再拦截跨站 Origin 与敌对 Host：这道责任已交给 Traefik + Authentik。
   const crossOrigin = await fetch(`${baseUrl}/api/config`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Origin: "http://evil.example" },
     body: "{}",
   });
-  assert.equal(crossOrigin.status, 403);
+  assert.notEqual(crossOrigin.status, 403, "应用侧不应再以 Orig1n 拒绝请求");
 
   const hostileHost = await postWithHost({ port, hostHeader: `evil.example:${port}` });
-  assert.equal(hostileHost.status, 403);
+  assert.notEqual(hostileHost.status, 403, "应用侧不应再以 Host 拒绝请求");
 
-  for (const malformedHost of [
-    `evil.example@127.0.0.1:${port}`,
-    `127.0.0.1#@evil.example:${port}`,
-  ]) {
-    const malformed = await postWithHost({ port, hostHeader: malformedHost });
-    assert.equal(malformed.status, 403, malformedHost);
-  }
-
+  // 正常路径仍必须工作。
   const sameOrigin = await fetch(`${baseUrl}/api/portrait/plan`, {
     method: "POST",
     headers: { Origin: baseUrl },
@@ -330,15 +326,4 @@ test("local server defaults to loopback and rejects cross-origin or non-loopback
   });
   assert.equal(localCli.status, 200);
   assert.equal((await localCli.json()).ok, true);
-
-  const tokenAuthorized = await fetch(`${baseUrl}/api/portrait/plan`, {
-    method: "POST",
-    headers: {
-      Origin: "http://evil.example",
-      "X-Image-Studio-Token": "runtime-test-token",
-    },
-    body: makePortraitForm(),
-  });
-  assert.equal(tokenAuthorized.status, 200);
-  assert.equal((await tokenAuthorized.json()).ok, true);
 });

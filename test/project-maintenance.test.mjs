@@ -321,6 +321,15 @@ test("fork-only capabilities stay present after any upstream re-base", async () 
     // 工具与文档
     { path: "../scripts/verify-ci-gates.mjs", contains: "EXPECTED_LINUX_SKIPS" },
     { path: "../docs/linux-ci-gates.md", contains: "" },
+    // 容器部署线（上游 v0.2.116 完全没有；重建时最容易整套消失）
+    { path: "../Dockerfile", contains: "ENTRYPOINT" },
+    { path: "../.dockerignore", contains: "node_modules" },
+    { path: "../docker-compose.yml", contains: "gpt-image2-studio" },
+    { path: "../docker/entrypoint.sh", contains: "retention-gc.mjs" },
+    { path: "../docker/retention-gc.mjs", contains: "quarantineJsonFile" },
+    { path: "../deploy/env.example", contains: "Traefik" },
+    { path: "../deploy/traefik-example.yml", contains: "authentik" },
+    { path: "../docs/docker-deployment.md", contains: "不发布任何宿主机端口" },
   ];
 
   for (const anchor of anchors) {

@@ -1,0 +1,67 @@
+# GPT-Image2-Studio 的 Traefik + Authentik 接入示例
+#
+# 这份文件是**参考配置**，不是本栈的组成：Traefik 与 Authentik 由你自己的
+# 栈管理。把下面的片段并进你现有的动态配置即可。
+#
+# 为什么必须有这一层：本 fork 已移除应用自身的鉴权（见 lib/local-server-auth.mjs），
+# studio 端口不对外发布；能到它前面的唯一入口就是这里。没有 Authentik 认证，
+# 任何能用 Traefik 的人都能驱动 studio 并消耗你的 API 额度。
+
+http:
+  routers:
+    studio:
+      rule: "Host(`studio.example.com`)"
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: le
+      # 先过 Authentik 中间件，再到应用。
+      middlewares:
+        - authentik-auth
+        - studio-sse
+      service: studio
+
+  middlewares:
+    # ---- Authentik 前向认证 ----------------------------------------------
+    # 由 Authentik 的 Proxy Provider 生成。实际部署时通常由 Authentik 自己的
+    # outpost 注入这一条，这里的写法只是说明它在链路里的位置：认证发生在这里，
+    # 不是发生在 node 里。
+    authentik-auth:
+      forwardAuth:
+        address: "http://authentik-server:9000/outpost.goauthentik.io/auth/traefik"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - X-authentik-username
+          - X-authentik-groups
+          - X-authentik-email
+          - X-authentik-name
+          - X-authentik-uid
+
+    # ---- SSE 必须的关闭缓冲 ---------------------------------------------
+    # studio 的生成接口用 text/event-stream 推事件，单张图的一次生成实测会
+    # 持续很久（默认上游超时 20 分钟，上限 1 小时，见
+    # IMAGE_STUDIO_CREATION_UPSTREAM_TIMEOUT_MS）。Traefik 默认的读超时会
+    # 提前切断连接，缓冲则会让事件攒到结束才一次性吐出（前端表现为「进度
+    # 卡住然后突然完成」）。
+    studio-sse:
+      buffering:
+        maxRequestBodyBytes: 0
+        memRequestBodyBytes: 0
+        maxResponseBodyBytes: 0
+        memResponseBodyBytes: 0
+        retryExpression: "IsNetworkError() && Attempts() < 2"
+
+  serversTransports:
+    # 读超时必须长于应用自己的上游超时，否则代理先断、应用还在等上游。
+    studio-transport:
+      forwardingTimeouts:
+        dialTimeout: 30s
+        responseHeaderTimeout: 0
+        idleTimeout: 3600s
+
+  services:
+    studio:
+      loadBalancer:
+        serversTransport: studio-transport
+        servers:
+          - url: "http://gpt-image2-studio:3600"

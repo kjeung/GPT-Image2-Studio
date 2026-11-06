@@ -1,0 +1,75 @@
+# GPT-Image2-Studio — Docker Compose 部署
+#
+#   cp deploy/env.example .env      # 再填 API Key
+#   docker compose up -d --build
+#
+# 这份文件只部署 studio 本体，**不发布任何端口**。
+#
+# ⚠️ 访问控制由前置 Traefik + Authentik 负责。
+# 本 fork 已移除应用自身的鉴权（见 lib/local-server-auth.mjs），所以：
+#   - 这里没有 ports:，容器只挂在 Traefik 的 docker 网络里；
+#   - 对外唯一入口必须是带 Authentik 认证的 Traefik 路由（见 deploy/traefik-example.yml）；
+#   - 不要为了「先跑起来看看」加 ports: —— 那等于把一个可消耗 API 额度的
+#     studio 直接裸露在网络上，且没有任何东西挡着。
+#
+# 网络：Traefik、Authentik 与本服务必须处于同一 docker 网络。下面默认用
+# external 网络 `proxy`；如果你的栈用了别的名字，改 `name:` 一处即可。
+#   docker network create proxy        # 若尚不存在
+# 若 Traefik/Authentik 与 studio 写在同一个 compose 文件里，可把 networks
+# 段改成 default 并删掉 external: true。
+
+name: gpt-image2-studio
+
+services:
+  studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # 镜像 tag 用仓库版本号；STUDIO_TAG 可在 .env 里覆盖。
+    image: gpt-image2-studio:${STUDIO_TAG:-0.3.001}
+    container_name: gpt-image2-studio
+    restart: unless-stopped
+    # 回收僵尸进程并向 node 转发信号（server.mjs 自身不装信号处理器）。
+    init: true
+    env_file:
+      - .env
+    environment:
+      PORT: "3600"
+      # 容器内必须监听全部接口，否则网桥上的 Traefik 接不进来。
+      HOST: "0.0.0.0"
+      # 两个目录都在 /data 下：画廊索引写在 dirname(OUTPUT_DIR)/.local/，
+      # 必须与数据目录同卷，否则索引与图片会分裂。
+      IMAGE_STUDIO_OUTPUT_DIR: "/data/output"
+      IMAGE_STUDIO_LOCAL_DATA_DIR: "/data"
+      # Docker 自带可用解析器；应用内那条公共 DNS 兜底只会拖慢并引入额外失败路径。
+      IMAGE_STUDIO_DISABLE_DNS_FALLBACK: "1"
+      TZ: "${TZ:-Asia/Shanghai}"
+    volumes:
+      - studio-data:/data
+    networks:
+      - proxy
+    healthcheck:
+      # 容器内探活走 127.0.0.1，与网络命名空间一致，不受 HOST 影响。
+      test:
+        - CMD
+        - node
+        - -e
+        - 'fetch("http://127.0.0.1:3600/").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'
+      interval: 30s
+      timeout: 5s
+      start_period: 25s
+      retries: 3
+    stop_grace_period: 15s
+    # 长连接（SSE）需要 Traefik 侧关掉缓冲与读超时，见 deploy/traefik-example.yml。
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  studio-data:
+
+networks:
+  proxy:
+    external: true
