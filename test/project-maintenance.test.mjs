@@ -274,6 +274,9 @@ test("security and contribution guidance are tracked project documents", async (
   assert.match(security, /反向代理/);
   assert.match(security, /不会由后端发起 Basic 登录挑战/u);
   assert.match(security, /显式配置的固定 Bearer 或 `X-Image-Studio-Token` 令牌/u);
+  // The desktop line is stripped from this fork; SECURITY.md must not advertise a runtime
+  // that no longer exists (it did until this ticket corrected it).
+  assert.doesNotMatch(security, /Electron|桌面版/u);
   assert.match(readme, /reverse proxy/i);
   assert.match(readme, /fixed token/i);
   assert.match(chineseReadme, /TLS 反向代理不能依赖后端弹出登录框/u);
