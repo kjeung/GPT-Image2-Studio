@@ -2,14 +2,14 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-v0.3.000-2563eb.svg)](https://github.com/kjeung/GPT-Image2-Studio/releases)
+[![Version](https://img.shields.io/badge/version-v0.3.001-2563eb.svg)](https://github.com/kjeung/GPT-Image2-Studio/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933.svg)](https://nodejs.org/)
 
 **A local-first AI image generation and visual production workbench**
 
 Prompt-to-image, reference analysis, editing, ecommerce sets, portraits, article illustrations, PPT generation, and asset history in one browser-based workspace.
 
-Current version: `v0.3.000`
+Current version: `v0.3.001`
 
 [Chinese README](./README.zh-CN.md)
 
@@ -70,7 +70,7 @@ The pure Node.js start commands and `stop-studio-services.cmd` do not require Po
 
 ### Windows browser installer
 
-The legacy browser-installer flow remains documented for local builds, but the `v0.3.000` GitHub Release does not include its IExpress package; see [Windows installer documentation](./docs/windows-installer.md) if you need to build the compatibility flow yourself.
+The legacy browser-installer flow remains documented for local builds, but the `v0.3.001` GitHub Release does not include its IExpress package; see [Windows installer documentation](./docs/windows-installer.md) if you need to build the compatibility flow yourself.
 
 ## Configuration
 
@@ -538,7 +538,7 @@ Installer changes additionally require `npm run build:installer`. See [CONTRIBUT
 - The source and lockfile versions are authoritative; tags use `v<version>`.
 - Versions use `major.minor.patch` with a three-digit patch segment: major bumps reset minor and patch, minor bumps reset patch, feature bumps add `0.010`, and ordinary updates add `0.001`.
 - Use `npm run release:major`, `npm run release:minor`, `npm run release:feature`, or `npm run release:patch` with `--summary`; each release changes exactly one level.
-- Current release notes: [v0.3.000](./docs/releases/v0.3.000.md).
+- Current release notes: [v0.3.001](./docs/releases/v0.3.001.md).
 - Windows installer packages are built locally; this fork ships no desktop build. Check the release notes for hashes and signing status.
 - `npm run check:release:strict` requires a clean worktree and a matching tag on the current commit.
 
@@ -552,7 +552,7 @@ Installer changes additionally require `npm run build:installer`. See [CONTRIBUT
 
 ## Version history
 
-Full notes, hashes, and verification records live on [GitHub Releases](https://github.com/kjeung/GPT-Image2-Studio/releases). Current-version notes: [v0.3.000](./docs/releases/v0.3.000.md).
+Full notes, hashes, and verification records live on [GitHub Releases](https://github.com/kjeung/GPT-Image2-Studio/releases). Current-version notes: [v0.3.001](./docs/releases/v0.3.001.md).
 
 ### v0.3.000
 

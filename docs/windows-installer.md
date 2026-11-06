@@ -1,6 +1,6 @@
 # Windows 安装包说明
 
-`GPT-Image2-Studio-Setup-v0.3.000.exe` 是 Windows 自解压安装包，由系统自带 `iexpress.exe` 生成。由于 IExpress 构建持续报错，`v0.3.000` GitHub Release 不附带这个兼容包；本 fork 已剥除 Electron 桌面线，这个兼容安装包就是唯一的 Windows 打包产物。
+`GPT-Image2-Studio-Setup-v0.3.001.exe` 是 Windows 自解压安装包，由系统自带 `iexpress.exe` 生成。由于 IExpress 构建持续报错，`v0.3.001` GitHub Release 不附带这个兼容包；本 fork 已剥除 Electron 桌面线，这个兼容安装包就是唯一的 Windows 打包产物。
 
 这个兼容安装包启动后会在默认浏览器中打开工作台。
 

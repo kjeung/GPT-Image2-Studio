@@ -2,14 +2,14 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-v0.3.000-2563eb.svg)](https://github.com/kjeung/GPT-Image2-Studio/releases)
+[![Version](https://img.shields.io/badge/version-v0.3.001-2563eb.svg)](https://github.com/kjeung/GPT-Image2-Studio/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933.svg)](https://nodejs.org/)
 
 **本地优先的 AI 图像生成与视觉创作工作台**
 
 把提示词生图、参考图分析、图片编辑、电商套图、人物写真、文章插图、PPT 生成和素材管理集中到一个浏览器界面中。
 
-当前版本：`v0.3.000`
+当前版本：`v0.3.001`
 
 </div>
 
@@ -74,7 +74,7 @@ Windows 脚本入口（启动器、Native Messaging 安装/卸载、图片资源
 
 ### 方式二：Windows 浏览器安装包（兼容旧版）
 
-旧版浏览器安装流程仍保留本地构建说明，但 `v0.3.000` GitHub Release 不附带 IExpress 兼容安装包；需要自行构建兼容流程时，参考 [Windows 浏览器安装包文档](./docs/windows-installer.md)。
+旧版浏览器安装流程仍保留本地构建说明，但 `v0.3.001` GitHub Release 不附带 IExpress 兼容安装包；需要自行构建兼容流程时，参考 [Windows 浏览器安装包文档](./docs/windows-installer.md)。
 
 ## 配置说明
 
@@ -619,7 +619,7 @@ cmd /c npm run build:installer
 产物路径格式：
 
 ```text
-artifacts/windows-installer/<build-id>/GPT-Image2-Studio-Setup-v0.3.000.exe
+artifacts/windows-installer/<build-id>/GPT-Image2-Studio-Setup-v0.3.001.exe
 ```
 
 脚本使用系统 `iexpress.exe` 生成自解压安装包，并把当前 Node.js 运行时和依赖打入安装目录；启动后仍使用默认浏览器显示工作台。
@@ -717,7 +717,7 @@ cmd /c npm run build:installer
 
 ## 版本更新说明
 
-完整说明、产物校验值和验证记录在 [GitHub Releases](https://github.com/kjeung/GPT-Image2-Studio/releases)。当前版本说明：[v0.3.000](./docs/releases/v0.3.000.md)。
+完整说明、产物校验值和验证记录在 [GitHub Releases](https://github.com/kjeung/GPT-Image2-Studio/releases)。当前版本说明：[v0.3.001](./docs/releases/v0.3.001.md)。
 
 ### v0.3.000 更新说明
 
