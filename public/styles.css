@@ -13798,7 +13798,10 @@ html[data-theme="light"] .lightbox-fields .detail-field {
   max-height: 100%;
   container-type: inline-size;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  /* 移植后新增两段内容（导入口令 / 套图模板）夹在工具栏与模板主体之间，
+     所以行模板从「头部 + 工具栏 + 主体」扩成「头部 + 工具栏 + 两段 + 主体」，
+     否则 1fr 会落在导入口令段上、主体被挤成隐式 auto 行。 */
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--overlay-border);
   border-radius: 8px;
@@ -23548,4 +23551,477 @@ html[data-ui-layout="mobile"] .site-brand-feedback {
 
 html[data-ui-layout="mobile"] .site-brand-actions .generate-button {
   grid-column: 1 / -1;
+}
+
+/* ==== 移植自 v0.2.0 分叉的提示词口令 / 套图 / 模板批量 / 画廊下载面板 ====
+   这一段的类名在本仓库主样式里此前没有任何规则，标记结构见 public/index.html
+   的 #promptTemplatePopover 与 #galleryDownloadSelectedButton。
+   取色一律走主题 token（--text / --muted / --accent / --accent-ink /
+   --info / --danger / --panel-strong / --active-tab-bg / --border /
+   --border-strong / --overlay-border-muted / --scrollbar-thumb-color /
+   --scrollbar-track-color），不在明暗任何一个主题里写死颜色，
+   所以自带昼夜两态，不需要额外的 [data-theme] 补丁块。 */
+
+/* --- 导入口令 ------------------------------------------------------------ */
+
+.prompt-kit-code-section {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.7fr) minmax(0, 1.3fr);
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--overlay-border-muted);
+  background: color-mix(in srgb, var(--panel-strong) 32%, transparent);
+}
+
+.prompt-kit-code-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.prompt-kit-code-copy strong {
+  color: var(--text);
+  font-size: var(--type-small-title-size);
+}
+
+.prompt-kit-code-copy span {
+  color: var(--muted);
+  font-size: var(--type-subtitle-size);
+  line-height: 1.45;
+}
+
+.prompt-kit-code-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.prompt-kit-code-controls textarea {
+  min-height: 54px;
+  max-height: 90px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: pre;
+}
+
+.prompt-kit-code-controls .toolbar-button {
+  min-width: 92px;
+  white-space: nowrap;
+}
+
+.prompt-kit-code-section > .toolbar-button {
+  min-height: 30px;
+  justify-self: start;
+  padding-inline: 10px;
+  font-size: var(--type-subtitle-size);
+}
+
+.prompt-kit-code-section .config-note {
+  grid-column: 2;
+  min-height: 0;
+  margin: 0;
+}
+
+/* --- 套图模板 ------------------------------------------------------------ */
+
+.prompt-set-section {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--overlay-border-muted);
+  background: color-mix(in srgb, var(--panel-strong) 20%, transparent);
+}
+
+.prompt-set-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.prompt-set-heading h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--type-small-title-size);
+}
+
+.prompt-set-heading p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: var(--type-subtitle-size);
+  line-height: 1.45;
+}
+
+.prompt-set-selection-count {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  font-size: var(--type-subtitle-size);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.prompt-set-list {
+  min-height: 42px;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+  scrollbar-color:
+    var(--scrollbar-thumb-color, color-mix(in srgb, var(--accent) 42%, transparent))
+    var(--scrollbar-track-color, transparent);
+}
+
+.prompt-set-card {
+  min-width: 190px;
+  max-width: 260px;
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.prompt-set-card.active {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 14%, transparent), color-mix(in srgb, var(--accent) 5%, transparent)),
+    color-mix(in srgb, var(--text) 3%, transparent);
+}
+
+.prompt-set-card-main {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.prompt-set-card-main strong,
+.prompt-set-card-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-set-card-main strong {
+  font-size: var(--type-subtitle-size);
+  font-weight: 650;
+}
+
+.prompt-set-card-main small {
+  color: var(--muted);
+  font-size: var(--type-subtitle-size);
+}
+
+.prompt-set-card-main:hover strong {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 62%, transparent);
+  text-underline-offset: 3px;
+}
+
+.prompt-set-card-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.prompt-set-card-actions .mini-action {
+  width: auto;
+  min-width: 34px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border-color: color-mix(in srgb, var(--accent) 14%, transparent);
+  background: color-mix(in srgb, var(--text) 2%, transparent);
+  font-size: var(--type-subtitle-size);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.prompt-set-card-actions .mini-action.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 20%, transparent);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+}
+
+.prompt-set-empty {
+  align-self: center;
+  color: var(--muted);
+  font-size: var(--type-subtitle-size);
+}
+
+.prompt-set-editor {
+  display: grid;
+  grid-template-columns: minmax(190px, 280px) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.prompt-set-editor input {
+  min-height: 34px;
+  border-radius: 9px;
+}
+
+.prompt-set-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.prompt-set-actions .toolbar-button,
+.prompt-set-generate-button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  font-size: var(--type-subtitle-size);
+  white-space: nowrap;
+}
+
+.prompt-set-generate-button {
+  width: auto;
+  padding: 0 16px;
+}
+
+.prompt-set-feedback {
+  min-height: 0;
+  margin: 0;
+}
+
+/* --- 模板行里的「加入套图」复选框 ---------------------------------------- */
+
+/* 模板行在 app.js 里的子元素顺序是：标题按钮 → 加入套图复选框 → （批量模式）
+   批量复选框 → 行操作。原来的两列网格只够放标题和行操作，第三、第四个元素会被
+   挤到第二行错位，所以这里换成可换行 flex：标题吃掉剩余宽度，控件始终贴右。 */
+.prompt-template-list .prompt-template-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.prompt-template-list .prompt-template-item > .prompt-template-title-button {
+  flex: 1 1 140px;
+}
+
+.prompt-template-set-check {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 7px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.prompt-template-set-check input,
+.prompt-template-list .prompt-template-item > input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border-radius: 4px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.prompt-template-set-check:has(input:checked) {
+  color: var(--accent-ink);
+}
+
+.prompt-template-set-check:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* --- 模板库列表工具条 / 我的模板工具条 ---------------------------------- */
+
+.prompt-template-list-toolbar,
+.prompt-template-personal-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.prompt-template-list-toolbar {
+  justify-content: space-between;
+}
+
+.prompt-template-list-toolbar > strong {
+  color: var(--text);
+  font-size: var(--type-small-title-size);
+}
+
+.prompt-template-list-toolbar > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.prompt-template-list-toolbar .toolbar-button,
+.prompt-template-personal-toolbar .toolbar-button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding-inline: 9px;
+  font-size: var(--type-subtitle-size);
+  white-space: nowrap;
+}
+
+.prompt-template-personal-toolbar .toolbar-button.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 26%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+/* 批量管理是开关型按钮，app.js 会同时给 .active 和 aria-pressed="true"。 */
+#promptTemplateBatchToggleButton.active,
+#promptTemplateBatchToggleButton[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background: var(--active-tab-bg);
+  color: var(--accent-ink);
+  font-weight: 650;
+}
+
+/* --- 提示词表单里的两个开关 ---------------------------------------------- */
+
+.prompt-template-params-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 2px 0 4px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+  color: var(--text);
+  font-size: var(--type-subtitle-size);
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.prompt-template-params-toggle:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.prompt-template-params-toggle:has(input:checked) {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.prompt-template-params-toggle input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin: 2px 0 0;
+  padding: 0;
+  border-radius: 4px;
+  accent-color: var(--accent);
+}
+
+.prompt-template-params-toggle span {
+  min-width: 0;
+}
+
+/* --- 模板库头部动作按钮 -------------------------------------------------- */
+
+.prompt-template-head-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.prompt-template-head-actions .toolbar-button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding-inline: 11px;
+  font-size: var(--type-subtitle-size);
+  white-space: nowrap;
+}
+
+/* --- 画廊：已选数量与「下载所选」 --------------------------------------- */
+
+.gallery-selection-count {
+  align-self: center;
+  color: var(--muted);
+  font-size: var(--type-subtitle-size);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 下载按钮与「删除当前 / 删除选中」并排：下载只走信息色，不借 danger 的红。
+   选择器同时挂类名和 aria-label（按钮的可访问名里写着「下载」），
+   这样即便有人误加别的类，外观也不会变成红色危险按钮。 */
+.gallery-download-button,
+#galleryDownloadSelectedButton[aria-label*="下载"] {
+  border-color: color-mix(in srgb, var(--info) 46%, var(--border));
+  background: color-mix(in srgb, var(--info) 13%, transparent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.gallery-download-button:hover:not(:disabled),
+#galleryDownloadSelectedButton[aria-label*="下载"]:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--info) 68%, var(--border-strong));
+  background: color-mix(in srgb, var(--info) 20%, transparent);
+}
+
+.gallery-download-button:focus-visible,
+#galleryDownloadSelectedButton[aria-label*="下载"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--info) 72%, transparent);
+  outline-offset: 2px;
+}
+
+/* --- 窄容器下的回退：面板按 inline-size 做容器查询 ---------------------- */
+
+@container (max-width: 620px) {
+  .prompt-kit-code-section {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .prompt-kit-code-section .config-note {
+    grid-column: 1;
+  }
+
+  .prompt-kit-code-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .prompt-set-heading {
+    align-items: flex-start;
+  }
+
+  .prompt-set-editor {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .prompt-set-card {
+    min-width: 168px;
+  }
 }
