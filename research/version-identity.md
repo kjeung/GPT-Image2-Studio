@@ -264,6 +264,8 @@ git check-ref-format refs/tags/v0.2.116_fork.1   → OK
 
 所以"版本号看不出 fork，靠 tag 名 `fork-v0.2.117` 补足"这条**在 strict 模式下不成立**：要么让 tag 就叫 `v0.2.117`，要么改 strict 的检查逻辑。fork 标识只能靠 Release 标题/正文表达。
 
+**但"再挂一个别名 tag"这条是成立的**：同一提交上同时打 `v0.2.117` 与 `fork-v0.2.117`，`git tag --points-at HEAD` 两个都列出来，strict 只要求**包含** `v<version>`，多出来的 tag 不影响 —— 实测 `发布一致性检查通过：v0.2.117（严格模式）`。所以路线 1 不必放弃 fork 标识，可以 `v<version>` 供工具链 + `fork-v<version>` 供人读。
+
 ### 8.5 `v0.2.116` 这个 tag 的冲突是真实存在的
 
 `git rev-parse v0.2.116` → `981376479da4c9f8209909f3b84ba46bcc70ab8b`（即上游 `7b7f8f6`）。本分支 `7c63e3a` 上 `git tag --points-at HEAD` 为空。**fork 若沿用 `v0.2.116` 发版，会让同一个 tag 名在本地与上游指向不同提交**；`check:release:strict` 又会要求 HEAD 上恰有 `v0.2.116`，二者只能靠"删掉上游 tag"或"不按严格模式发"解决。
