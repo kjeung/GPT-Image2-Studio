@@ -225,3 +225,49 @@ git check-ref-format refs/tags/v0.2.116_fork.1   → OK
 - GitHub Releases —— <https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases>、<https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository>
 - shields.io —— <https://shields.io/badges/static-badge>
 - 先例 —— <https://github.com/k3s-io/k3s/releases/tag/v1.29.8%2Bk3s1>、<https://github.com/rancher/rke2/releases>、<https://github.com/git-for-windows/git/releases>、<https://github.com/VSCodium/vscodium/releases>、<https://codeberg.org/forgejo/forgejo>
+
+---
+
+## 8. T4 复核补记（2026-11-06，在 `legacy-v0.2.116` `7c63e3a` 上实测）
+
+本节是**新增事实**，不改变上面的结论；补的是"选完写法之后落地会踩到什么"。
+
+### 8.1 两条路各要改哪些文件（已在一次性副本里真跑过）
+
+把 HEAD 导出到两个干净副本，`node_modules` 软链后各跑一次 `scripts/release-patch.mjs`：
+
+| 跑法 | 命令 | 结果版本 | 改了哪些文件 | 跑完 `check:release` |
+|---|---|---|---|---|
+| 纯数字（路线 1） | `--type patch --summary …` | `0.2.116` → **`0.2.117`** | `package.json`、`package-lock.json`、`README.md`、`README.zh-CN.md`、`public/index.html`、`docs/windows-installer.md`、新建 `docs/releases/v0.2.117.md` | **通过**（`发布一致性检查通过：v0.2.117`） |
+| 纯数字（路线 1） | `--type feature --summary …` | `0.2.116` → **`0.2.126`** | 同上 | **通过**（`发布一致性检查通过：v0.2.126`） |
+
+结论：**路线 1 不需要任何脚本改动**，仓库自带的 `release:patch` 一条命令就做完，且 `check:release` 全绿。两条命令都顺带改掉了 README 引用的安装包名、发行说明链接与 `v<version>` GitHub Release 表述（`version-facts.mjs` 的模板漂移检查覆盖到）。
+
+**`--summary` 是必填的**：不传直接 `Version release summary is required`，退出码非零（首版误以为可以空跑，实测挡住了）。
+
+### 8.2 有一个坑是研究笔记没写到的：`--type feature` 是"+10"不是"+1"
+
+`scripts/versioning.mjs:68-72`：`feature` = `patch + 10`，`patch` = `patch + 1`。所以 `0.2.116` 跑 `release:feature` 得到 **`0.2.126`**，跳过 `0.2.117`–`0.2.125` 全部号段。想只前进一位就用 `release:patch`。
+
+### 8.3 路线 2（保留后辍）的改动面比笔记估的更大：会**静默**失去漂移检查
+
+- `isCanonicalVersion("0.2.117-fork.1") === false`、`isCanonicalVersion("0.2.117+fork.1") === false`（实测）；因此 `check:release` 第一步 `assertCanonicalVersion` 就 throw，必须先放宽 `VERSION_PATTERN`（`scripts/versioning.mjs:3`）与 `formatVersion`（`padStart(3,"0")` 会拒绝带后辍的串），再重写 `bumpVersion`/`parseVersion` 的后辍处理，最后改 `openspec/specs/application-versioning/spec.md`。
+- **放宽后有一个新的静默洞**：`version-facts.mjs` 的 `VERSION_CAPTURE = "(\d+\.\d+\.\d{1,3})"` **只匹配纯数字段**，模板 `[v{version}](./docs/releases/v{version}.md)` 因此**匹配不到** `v0.2.117-fork.1` 这样的链接。实测 `findVersionFactDrift({text: "- Current release notes: [v0.2.117-fork.1](./docs/releases/v0.2.117-fork.1.md).", templates, version: "0.2.117-fork.1"})` 返回 `[]`——**空数组意味着"无漂移"，也意味着"根本没匹配上"**。也就是说：带后辍的写法会把 README 发行说明链接与 GitHub Release 表述的漂移检查**静默关掉**，`check:release` 仍报绿。要保留这层保护，必须把 `VERSION_CAPTURE` 一并放宽，并补一条反例测试。
+- 另外这些也要跟着改：`check-release-readiness.mjs` 的 `requireVersionFact` 正则（`[0-9A-Za-z.+-]+` 本来就容后辍，不用动）、`replaceWorkbenchVersionFact`（`aria-label` 逐字比对，后辍会进用户可见字符串）、`check:release:strict` 的 tag 名（见 8.4）。
+
+### 8.4 `check:release:strict` 直接钉死 tag 必须叫 `v<version>`
+
+`check-release-readiness.mjs:305-309`：`strict` 模式要求 `git tag --points-at HEAD` 里出现 **`v<version>`** 这个字面量。实测：
+
+- 打 `v0.2.117` + 干净树 → **通过**（严格模式）。
+- 只打 `fork-v0.2.117` → **`严格发布检查要求当前提交带有标签 v0.2.117`**，失败。
+
+所以"版本号看不出 fork，靠 tag 名 `fork-v0.2.117` 补足"这条**在 strict 模式下不成立**：要么让 tag 就叫 `v0.2.117`，要么改 strict 的检查逻辑。fork 标识只能靠 Release 标题/正文表达。
+
+### 8.5 `v0.2.116` 这个 tag 的冲突是真实存在的
+
+`git rev-parse v0.2.116` → `981376479da4c9f8209909f3b84ba46bcc70ab8b`（即上游 `7b7f8f6`）。本分支 `7c63e3a` 上 `git tag --points-at HEAD` 为空。**fork 若沿用 `v0.2.116` 发版，会让同一个 tag 名在本地与上游指向不同提交**；`check:release:strict` 又会要求 HEAD 上恰有 `v0.2.116`，二者只能靠"删掉上游 tag"或"不按严格模式发"解决。
+
+### 8.6 `SECURITY.md` 那半（已在 `da39d8e` 落地）
+
+`SECURITY.md:9` 原文照抄上游，写着"普通浏览器和 Electron 桌面版才不需要认证"，而 T1 已把桌面线整体剥除 → 事实性错误。改为"浏览器访问才不需要认证。本 fork 不提供桌面客户端"，并在 `test/project-maintenance.test.mjs` 加 `assert.doesNotMatch(security, /Electron|桌面版/u)` 反向钉住（喂回旧文验证会打红）。
