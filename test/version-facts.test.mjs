@@ -15,11 +15,15 @@ import { checkReleaseReadiness } from "../scripts/check-release-readiness.mjs";
 import { bumpPatchRelease } from "../scripts/release-patch.mjs";
 
 const README_TEMPLATES = getMaintainedVersionFactTemplates("README.md");
+const BADGE_TEMPLATE = "version-v{version}-2563eb.svg";
 
 test("maintained version facts cover the installer and release-note link", () => {
   const ZH_README_TEMPLATES = getMaintainedVersionFactTemplates("README.zh-CN.md");
   assert.ok(ZH_README_TEMPLATES.includes("GPT-Image2-Studio-Setup-v{version}.exe"));
   assert.ok(README_TEMPLATES.includes("[v{version}](./docs/releases/v{version}.md)"));
+  // The shields badge is the first version fact a reader sees, so it must be maintained too.
+  assert.ok(README_TEMPLATES.includes(BADGE_TEMPLATE));
+  assert.ok(ZH_README_TEMPLATES.includes(BADGE_TEMPLATE));
   assert.equal(getMaintainedVersionFactTemplates("does/not/exist.md").length, 0);
   for (const { templates } of MAINTAINED_VERSION_FACT_TEMPLATES) {
     for (const template of templates) {
@@ -40,6 +44,15 @@ test("drift detection reports stale facts and ignores absent or current ones", (
   assert.equal(drift[0].found, "[v1.2.002](./docs/releases/v1.2.002.md)");
   assert.equal(drift[0].expected, "[v1.2.003](./docs/releases/v1.2.003.md)");
   assert.equal(drift[0].lineNumber, 3);
+
+  // The shields badge is a version fact like any other; a stale one is drift.
+  const staleBadge = findVersionFactDrift({
+    text: "[![Version](https://img.shields.io/badge/version-v1.2.003-2563eb.svg)](https://example.test/releases)\n",
+    templates: README_TEMPLATES,
+    version: "1.2.004",
+  });
+  assert.equal(staleBadge.length, 1);
+  assert.equal(staleBadge[0].found, "version-v1.2.003-2563eb.svg");
 
   // A document that never mentions a template is unconstrained by it.
   assert.equal(findVersionFactDrift({ text: "no facts here\n", templates: README_TEMPLATES, version: "1.2.003" }).length, 0);
@@ -88,7 +101,7 @@ async function createReleaseFixture(version) {
   );
   await writeFile(
     join(root, "README.md"),
-    `Current version: \`v${version}\`\n\n- Current release notes: [v${version}](./docs/releases/v${version}.md)\n`,
+    `Current version: \`v${version}\`\n\n[![Version](https://img.shields.io/badge/version-v${version}-2563eb.svg)](https://example.test/releases)\n\n- Current release notes: [v${version}](./docs/releases/v${version}.md)\n`,
     "utf8",
   );
   await writeFile(join(root, "README.zh-CN.md"), `当前版本：\`v${version}\`\n`, "utf8");
@@ -136,6 +149,10 @@ test("patch release updates the release-note link alongside the anchored fact", 
   const readme = await readFile(join(root, "README.md"), "utf8");
   assert.ok(readme.includes("Current version: `v1.2.004`"));
   assert.ok(readme.includes("[v1.2.004](./docs/releases/v1.2.004.md)"), "the release-note link must follow the bump");
+  assert.ok(
+    readme.includes("https://img.shields.io/badge/version-v1.2.004-2563eb.svg"),
+    "the shields badge must follow the bump",
+  );
   assert.equal(readme.includes("v1.2.003"), false);
 
   const installerDoc = await readFile(join(root, "docs", "windows-installer.md"), "utf8");

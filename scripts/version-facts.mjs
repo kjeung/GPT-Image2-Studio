@@ -18,11 +18,19 @@ const VERSION_CAPTURE = "(\\d+\\.\\d+\\.\\d{1,3})";
 export const MAINTAINED_VERSION_FACT_TEMPLATES = [
   {
     relativePath: "README.md",
-    templates: ["[v{version}](./docs/releases/v{version}.md)", "`v{version}` GitHub Release"],
+    templates: [
+      // T1's desktop strip deleted upstream's badge template along with the desktop
+      // installer templates. The badge has nothing to do with the desktop line, so it is
+      // restored here in upstream's exact sub-string form to keep the rebase cheap.
+      "version-v{version}-2563eb.svg",
+      "[v{version}](./docs/releases/v{version}.md)",
+      "`v{version}` GitHub Release",
+    ],
   },
   {
     relativePath: "README.zh-CN.md",
     templates: [
+      "version-v{version}-2563eb.svg",
       "GPT-Image2-Studio-Setup-v{version}.exe",
       "[v{version}](./docs/releases/v{version}.md)",
       "`v{version}` GitHub Release",

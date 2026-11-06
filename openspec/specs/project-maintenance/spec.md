@@ -17,7 +17,7 @@ The repository SHALL provide an English `README.md` homepage and a synchronized 
 - **AND** the job fails instead of accepting generated drift
 
 ### Requirement: Release facts are checked consistently
-The repository SHALL keep the root package version as the authoritative main application version, SHALL provide a patch-update command that increments only the third semantic-version component by one, and SHALL provide a release consistency command that compares the package version with the lockfile and with explicit current-version facts in the visible workbench label, both README files, Windows distribution documentation, and current release notes. Before changing any maintained target, the patch-update command SHALL require exactly one file-specific current-version fact in every target and SHALL update only those facts, preserving examples, historical versions, tag commands, and other unrelated text. The command SHALL stage and commit the maintained targets as one logical update: if any target cannot be staged or committed, every existing target SHALL be restored to its original bytes and no new release note SHALL remain. A temporary-file or backup cleanup failure SHALL be reported rather than ignored, and the reported outcome SHALL distinguish an uncommitted or incompletely rolled-back transaction from a fully committed update whose recovery backup could not be removed. The command SHALL NOT change the independently versioned product-image collector extension. The release consistency command SHALL require exactly one renderable `.app-version` DOM element whose displayed and accessible version values match the package version; commented, non-rendered, hidden, or additional version elements SHALL NOT satisfy the check. A target version appearing only in examples, migration notes, tag commands, or other unrelated text SHALL NOT satisfy the check. A strict release mode SHALL additionally require a clean worktree and a matching version tag on the current commit.
+The repository SHALL keep the root package version as the authoritative main application version, SHALL provide a patch-update command that increments only the third semantic-version component by one, and SHALL provide a release consistency command that compares the package version with the lockfile and with explicit current-version facts in the visible workbench label, both README files (including the shields.io version badge on each), Windows distribution documentation, and current release notes. Before changing any maintained target, the patch-update command SHALL require exactly one file-specific current-version fact in every target and SHALL update only those facts, preserving examples, historical versions, tag commands, and other unrelated text. The command SHALL stage and commit the maintained targets as one logical update: if any target cannot be staged or committed, every existing target SHALL be restored to its original bytes and no new release note SHALL remain. A temporary-file or backup cleanup failure SHALL be reported rather than ignored, and the reported outcome SHALL distinguish an uncommitted or incompletely rolled-back transaction from a fully committed update whose recovery backup could not be removed. The command SHALL NOT change the independently versioned product-image collector extension. The release consistency command SHALL require exactly one renderable `.app-version` DOM element whose displayed and accessible version values match the package version; commented, non-rendered, hidden, or additional version elements SHALL NOT satisfy the check. A target version appearing only in examples, migration notes, tag commands, or other unrelated text SHALL NOT satisfy the check. A strict release mode SHALL additionally require a clean worktree and a matching version tag on the current commit.
 
 #### Scenario: Maintainer prepares the next main application update
 - **WHEN** the maintainer runs the maintained patch-update command from a consistent stable version
@@ -56,6 +56,17 @@ The repository SHALL keep the root package version as the authoritative main app
 #### Scenario: Current facts remain stale beside a new example
 - **WHEN** a document's declared current version is old but unrelated text contains the package version
 - **THEN** the release consistency command fails
+
+#### Scenario: A README version badge goes stale
+- **WHEN** a README carries a shields.io version badge whose version differs from the root package version, while the anchored current-version fact and the release-note link already name the new version
+- **THEN** the release consistency command fails
+- **AND** it reports the README file, the line, the stale badge value, and the expected value
+- **AND** the same branch passes again once the badge names the package version
+
+#### Scenario: A release bump carries the badge forward
+- **WHEN** the maintained patch-update command runs on a consistent stable version whose READMEs carry a version badge
+- **THEN** both README badges name the new version after the command
+- **AND** the release consistency command passes on the updated tree
 
 #### Scenario: The workbench version exists only in non-rendered markup
 - **WHEN** the only matching `.app-version` markup is inside an HTML comment or other non-rendered container
