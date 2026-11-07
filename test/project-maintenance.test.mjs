@@ -324,7 +324,7 @@ test("fork-only capabilities stay present after any upstream re-base", async () 
     // 容器部署线（上游 v0.2.116 完全没有；重建时最容易整套消失）
     { path: "../Dockerfile", contains: "ENTRYPOINT" },
     { path: "../.dockerignore", contains: "node_modules" },
-    { path: "../docker-compose.yml", contains: "gpt-image2-studio" },
+    { path: "../compose.yml", contains: "gpt-image2-studio" },
     { path: "../docker/entrypoint.sh", contains: "retention-gc.mjs" },
     { path: "../docker/retention-gc.mjs", contains: "quarantineJsonFile" },
     { path: "../deploy/env.example", contains: "Traefik" },

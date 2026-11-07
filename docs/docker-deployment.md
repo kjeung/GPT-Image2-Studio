@@ -12,10 +12,10 @@
 ## 前提
 
 - Traefik 与 Authentik 已在运行，且与 studio **处于同一 docker 网络**。
-- 下面默认该网络名为 `proxy`；不是的话改 `docker-compose.yml` 里 `name:` 一处。
+- 下面默认该网络名为 `traefik_net`；不是的话改 `compose.yml` 里 `name:` 一处。
 
 ```sh
-docker network create proxy   # 若尚不存在
+docker network create traefik_net   # 若尚不存在
 ```
 
 ## 部署
@@ -45,7 +45,7 @@ docker compose ps              # 应显示 healthy
 
 ## 数据与持久化
 
-单个命名卷 `studio-data` 挂到 `/data`，其下：
+宿主机当前目录下的 `studio-data/` 以绑定目录挂到 `/data`，其下：
 
 | 路径 | 内容 |
 |---|---|
@@ -53,8 +53,10 @@ docker compose ps              # 应显示 healthy
 | `/data/.local/config.json` | 应用配置，**含各家 API Key，按密钥对待** |
 | `/data/.local/gallery-index.json` | 画廊索引，与 output 同卷否则索引与图片会分裂 |
 
-两个目录由 `docker-compose.yml` 显式指定。若删掉那两行，应用会回落到
-`~/Pictures` 与仓库根目录 —— **落在卷外，重启即丢**。
+两个目录由 `compose.yml` 显式指定。若删掉那两行，应用会回落到
+`~/Pictures` 与仓库根目录 —— **落在容器层，重启即丢**。绑定目录不存在时 compose
+会自动创建，但归属 root 而 node 用户写不进去，首次启动前先
+`mkdir -p studio-data && chown 1000:1000 studio-data`。
 
 ## 留存清理
 
@@ -69,7 +71,7 @@ docker compose ps              # 应显示 healthy
 
 **容器起来了但 Traefik 502**
 
-- 确认两个容器在同一网络：`docker network inspect proxy`。
+- 确认两个容器在同一网络：`docker network inspect traefik_net`。
 - 确认容器内监听在 `0.0.0.0`：`docker compose logs studio` 首行应显示
   `http://0.0.0.0:3600`。若显示 `127.0.0.1`，说明 `HOST` 被 `.env` 覆盖了。
 
@@ -90,6 +92,6 @@ Traefik 读超时短于应用的上游超时。调 `studio-transport` 的 `idleT
 
 本 fork 相对上游 `v0.2.116` 的容器相关改动：
 
-- 新增 `Dockerfile` / `.dockerignore` / `docker-compose.yml` / `deploy/*`。
+- 新增 `Dockerfile` / `.dockerignore` / `compose.yml` / `deploy/*`。
 - 移除应用内鉴权与「非回环 + 明文」启动守卫（上游只面向本机回环运行）。
 - 保留上游的 `extensions/`，因为扩展打包接口需要它。

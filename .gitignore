@@ -9,6 +9,7 @@ test-results/
 .env.*
 !.env.example
 .local/
+studio-data/
 .playwright-cli/
 .playwright-mcp/
 .superpowers/

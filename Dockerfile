@@ -65,7 +65,7 @@ USER node
 
 EXPOSE 3600
 
-# 声明卷：不带 -v 的裸 `docker run` 也能持久化状态；compose 用命名卷覆盖。
+# 声明卷：不带 -v 的裸 `docker run` 也能持久化状态；compose 用绑定目录覆盖。
 VOLUME ["/data"]
 
 # 用 Node 自带 fetch 探活：slim 镜像里没有 curl/wget。

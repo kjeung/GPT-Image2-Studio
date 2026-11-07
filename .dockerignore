@@ -5,6 +5,7 @@ outputs
 artifacts
 dist
 test-results
+studio-data
 
 .env
 .env.*

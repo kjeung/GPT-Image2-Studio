@@ -13,8 +13,8 @@
 #     studio 直接裸露在网络上，且没有任何东西挡着。
 #
 # 网络：Traefik、Authentik 与本服务必须处于同一 docker 网络。下面默认用
-# external 网络 `proxy`；如果你的栈用了别的名字，改 `name:` 一处即可。
-#   docker network create proxy        # 若尚不存在
+# external 网络 `traefik_net`；如果你的栈用了别的名字，改 `name:` 一处即可。
+#   docker network create traefik_net  # 若尚不存在
 # 若 Traefik/Authentik 与 studio 写在同一个 compose 文件里，可把 networks
 # 段改成 default 并删掉 external: true。
 
@@ -44,10 +44,14 @@ services:
       # Docker 自带可用解析器；应用内那条公共 DNS 兜底只会拖慢并引入额外失败路径。
       IMAGE_STUDIO_DISABLE_DNS_FALLBACK: "1"
       TZ: "${TZ:-Asia/Shanghai}"
+    # 数据落在宿主机当前目录下的 studio-data/（绑定挂载）：备份直接复制目录，
+    # 换 compose 工程名也不会丢。目录不存在时容器以 root 建目录，但应用以
+    # node 用户运行写不进去 —— 首次启动前先执行：
+    #   mkdir -p studio-data && chown 1000:1000 studio-data
     volumes:
-      - studio-data:/data
+      - ./studio-data:/data
     networks:
-      - proxy
+      - traefik_net
     healthcheck:
       # 容器内探活走 127.0.0.1，与网络命名空间一致，不受 HOST 影响。
       test:
@@ -67,9 +71,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-volumes:
-  studio-data:
-
 networks:
-  proxy:
+  traefik_net:
     external: true
