@@ -75,6 +75,65 @@ test("site brand falls back to the default identity", () => {
   assert.equal(normalizeSiteBrand({ name: "" }).tagline, DEFAULT_SITE_BRAND.tagline);
 });
 
+test("site brand defaults to no visible name until the user provides one", () => {
+  assert.equal(DEFAULT_SITE_BRAND.name, "");
+  assert.equal(normalizeSiteBrand(null).name, "");
+  assert.equal(resolveSiteBrandDocumentAppName(DEFAULT_SITE_BRAND), "IS");
+});
+
+test("site brand hides the header title row until a name is provided", () => {
+  const titleRow = { hidden: false };
+  const refs = { brandName: {}, brandTagline: {}, brandTitleRow: titleRow };
+  const controller = createSiteBrandingController({
+    refs,
+    documentObj: createFaviconDocument([]),
+    storage: createMemoryStorage(),
+    syncDocumentTitle: () => {},
+  });
+  controller.applyBrand({});
+  assert.equal(refs.brandName.textContent, "");
+  assert.equal(titleRow.hidden, true);
+  controller.applyBrand({ name: "Acme Studio" });
+  assert.equal(refs.brandName.textContent, "Acme Studio");
+  assert.equal(titleRow.hidden, false);
+});
+
+test("site brand keeps the modal preview title row in step with the header", () => {
+  const titleRow = { hidden: false };
+  const previewTitleRow = { hidden: false };
+  const previewName = {};
+  const refs = {
+    brandName: {},
+    brandTagline: {},
+    brandTitleRow: titleRow,
+    siteBrandModal: { classList: { toggle() {} }, setAttribute() {} },
+    siteBrandPreviewName: previewName,
+    siteBrandPreviewTitleRow: previewTitleRow,
+  };
+  const controller = createSiteBrandingController({
+    refs,
+    documentObj: createFaviconDocument([]),
+    storage: createMemoryStorage(),
+    syncDocumentTitle: () => {},
+  });
+  /* 控制器 setOpen 用 requestAnimationFrame 聚焦输入框，node 环境需要显式提供。 */
+  const originalRaf = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = (callback) => callback();
+  try {
+    controller.open();
+    assert.equal(previewTitleRow.hidden, true, "未命名时预览标题行不占位");
+    controller.close();
+    controller.applyBrand({ name: "Acme Studio" });
+    assert.equal(titleRow.hidden, false);
+    controller.open();
+    assert.equal(previewName.textContent, "Acme Studio");
+    assert.equal(previewTitleRow.hidden, false, "命名后预览标题行与顶部一致显示");
+  } finally {
+    if (originalRaf === undefined) delete globalThis.requestAnimationFrame;
+    else globalThis.requestAnimationFrame = originalRaf;
+  }
+});
+
 test("site logo validation accepts supported small images and rejects invalid uploads", () => {
   assert.equal(validateSiteLogoFile({ type: "image/png", size: 1024 }).type, "image/png");
   assert.throws(() => validateSiteLogoFile({ type: "text/plain", size: 20 }), /PNG/);

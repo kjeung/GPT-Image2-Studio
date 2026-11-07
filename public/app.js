@@ -446,7 +446,6 @@ Object.assign(UI_LANGUAGE_TEXT["zh-CN"], {
   activeCallMeta: "当前生图调用",
   background: "背景",
   notRecorded: "未记录",
-  requestIp: "请求发起IP",
   transparent: "透明",
   transparentBackgroundAria: "启用透明背景",
 });
@@ -455,7 +454,6 @@ Object.assign(UI_LANGUAGE_TEXT.en, {
   activeCallMeta: "Current image call",
   background: "Background",
   notRecorded: "Not recorded",
-  requestIp: "Request IP",
   transparent: "Transparent",
   transparentBackgroundAria: "Use transparent background",
 });
@@ -1407,7 +1405,10 @@ const refs = {
   siteBrandNameInput: document.querySelector("#siteBrandNameInput"),
   siteBrandPreviewImage: document.querySelector("#siteBrandPreviewImage"),
   siteBrandPreviewMark: document.querySelector("#siteBrandPreviewMark"),
+  brandName: document.querySelector("#brandName"),
+  brandTitleRow: document.querySelector("#brandTitleRow"),
   siteBrandPreviewName: document.querySelector("#siteBrandPreviewName"),
+  siteBrandPreviewTitleRow: document.querySelector("#siteBrandPreviewTitleRow"),
   siteBrandPreviewTagline: document.querySelector("#siteBrandPreviewTagline"),
   siteBrandRadiusInput: document.querySelector("#siteBrandRadiusInput"),
   siteBrandRadiusValue: document.querySelector("#siteBrandRadiusValue"),
@@ -1706,7 +1707,6 @@ const refs = {
   imageToolModelSelect: document.querySelector("#imageToolModelSelect"),
   includeImageToolModelToggle: document.querySelector("#includeImageToolModelToggle"),
   parameterToolModel: document.querySelector("#parameterToolModel"),
-  parameterRequestIp: document.querySelector("#parameterRequestIp"),
   parameterRequestUrl: document.querySelector("#parameterRequestUrl"),
   savedKeyMask: document.querySelector("#savedKeyMask"),
   sizeInput: document.querySelector("#sizeInput"),
@@ -6202,9 +6202,6 @@ function updateGenerationModeStatus() {
   }
   if (refs.parameterTextModel) {
     refs.parameterTextModel.textContent = textModel;
-  }
-  if (refs.parameterRequestIp) {
-    refs.parameterRequestIp.textContent = state.config?.requestIp || getUiLanguageText("notRecorded") || "未记录";
   }
   if (refs.parameterRequestUrl) {
     let requestUrl = "";

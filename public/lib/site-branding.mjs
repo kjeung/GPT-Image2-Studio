@@ -12,7 +12,7 @@ export const SITE_BRAND_FAVICON_LINK_SELECTOR = "link[rel~='icon']";
 export const SITE_BRAND_DOCUMENT_APP_NAME = "IS";
 
 export const DEFAULT_SITE_BRAND = Object.freeze({
-  name: "aEboli",
+  name: "",
   tagline: "AI 图像生成工作流",
   imageDataUrl: "",
   imageName: "",
@@ -78,8 +78,8 @@ export function getSiteBrandFaviconHref(value = {}, fallback = DEFAULT_SITE_FAVI
 }
 
 /* 页面标题的唯一权威仍是 app.js 的 syncDocumentTitle（"IS" / "IS - <页面名>"）。
-   品牌名只在用户真的改过之后才接管应用名：默认名字与上游头部的产品名一致（aEboli），
-   此时标题继续是 "IS"，上游既有的标题约定（含 document-title.test.mjs）原样保留。 */
+   品牌名只在用户真的改过之后才接管应用名：默认名字为空，未命名时标题继续是 "IS"，
+   上游既有的标题约定（含 document-title.test.mjs）原样保留。 */
 export function resolveSiteBrandDocumentAppName(
   value = {},
   fallback = SITE_BRAND_DOCUMENT_APP_NAME,
@@ -320,6 +320,8 @@ export function createSiteBrandingController({
     current = normalized;
     if (refs.brandName) refs.brandName.textContent = normalized.name;
     if (refs.brandTagline) refs.brandTagline.textContent = normalized.tagline;
+    /* 未命名时标题行整体不占位，只保留图形标识与副标题，与默认留空一致。 */
+    if (refs.brandTitleRow) refs.brandTitleRow.hidden = !normalized.name;
     setMarkAppearance(refs.brandMark, normalized);
     setImage(refs.brandLogoImage, normalized);
     setFavicon(normalized);
@@ -337,6 +339,7 @@ export function createSiteBrandingController({
     if (syncInputs && refs.siteBrandFitInput) refs.siteBrandFitInput.value = rendered.fit;
     if (syncInputs && refs.siteBrandBackgroundInput) refs.siteBrandBackgroundInput.value = rendered.background;
     if (refs.siteBrandPreviewName) refs.siteBrandPreviewName.textContent = rendered.name;
+    if (refs.siteBrandPreviewTitleRow) refs.siteBrandPreviewTitleRow.hidden = !rendered.name;
     if (refs.siteBrandPreviewTagline) refs.siteBrandPreviewTagline.textContent = rendered.tagline;
     if (refs.siteBrandFilename) {
       refs.siteBrandFilename.textContent = rendered.imageDataUrl
