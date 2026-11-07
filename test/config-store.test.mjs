@@ -110,6 +110,63 @@ test("config store uses local environment variables as defaults before any save"
   assert.equal(privateConfig.protocolApiKey, "env-protocol-key-1234567890");
 });
 
+test("config store seeds every shared default and route toggle from the environment", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "responses-config-"));
+  const store = createConfigStore({
+    rootDir,
+    env: {
+      IMAGE_STUDIO_IMAGE_SIZE: "1536x1024",
+      IMAGE_STUDIO_IMAGE_FORMAT: "jpg",
+      IMAGE_STUDIO_REASONING_EFFORT: "max",
+      IMAGE_STUDIO_GENERATION_START_DELAY_MS: "2500",
+      IMAGE_STUDIO_GENERATION_CONCURRENCY: "7",
+      IMAGE_STUDIO_INCLUDE_IMAGE_TOOL_MODEL: "1",
+      IMAGE_STUDIO_DIRECT_IMAGE_STREAM: "true",
+    },
+  });
+
+  const publicConfig = await store.readPublicConfig();
+
+  assert.equal(publicConfig.defaults.size, "1536x1024");
+  assert.equal(publicConfig.defaults.format, "jpg");
+  assert.equal(publicConfig.defaults.reasoningEffort, "max");
+  assert.equal(publicConfig.defaults.generationStartDelayMs, 2500);
+  assert.equal(publicConfig.defaults.generationConcurrency, 7);
+  assert.equal(publicConfig.includeImageToolModel, true);
+  assert.equal(publicConfig.directImageStream, true);
+});
+
+test("config store treats an explicitly false environment toggle as a real value", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "responses-config-"));
+  const store = createConfigStore({
+    rootDir,
+    env: {
+      IMAGE_STUDIO_INCLUDE_IMAGE_TOOL_MODEL: "false",
+      IMAGE_STUDIO_DIRECT_IMAGE_STREAM: "off",
+      IMAGE_STUDIO_GENERATION_START_DELAY_MS: "0",
+    },
+  });
+
+  const publicConfig = await store.readPublicConfig();
+
+  assert.equal(publicConfig.includeImageToolModel, false);
+  assert.equal(publicConfig.directImageStream, false);
+  // 0 是显式值而非「未设置」，但 200ms 是合法下限，所以落到实处是 200。
+  assert.equal(publicConfig.defaults.generationStartDelayMs, 200);
+});
+
+test("config store falls back to the built-in defaults when the new environment variables are absent", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "responses-config-"));
+  const store = createConfigStore({ rootDir, env: {} });
+
+  const publicConfig = await store.readPublicConfig();
+
+  assert.equal(publicConfig.defaults.size, "1024x1280");
+  assert.equal(publicConfig.defaults.format, "png");
+  assert.equal(publicConfig.includeImageToolModel, false);
+  assert.equal(publicConfig.directImageStream, false);
+});
+
 test("config store migrates a legacy auto image quality to high", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "responses-config-quality-migration-"));
   await mkdir(join(rootDir, ".local"), { recursive: true });

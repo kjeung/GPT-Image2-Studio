@@ -231,6 +231,19 @@ Direct-call environment variables are split by purpose:
 | `GROK_BASE_URL`, `GROK_API_KEY`, `GROK_ENDPOINT_PATH`, `GROK_IMAGE_MODEL` | Independent Grok image-generation and editing channel |
 | `DIRECT_BASE_URL`, `DIRECT_API_KEY`, `DIRECT_ENDPOINT_PATH`, `DIRECT_RESPONSES_MODEL` | Legacy fallback accepted for existing configurations |
 
+Shared defaults apply to every channel at once; channel-specific switches are named after their channel:
+
+| Variables | Purpose |
+| --- | --- |
+| `IMAGE_ROUTE` | Startup channel: `a` route, `b` direct, `c` model protocol, `d` Grok |
+| `IMAGE_QUALITY`, `IMAGE_SIZE`, `IMAGE_FORMAT` | Shared generation defaults; `IMAGE_QUALITY` also accepts `auto` |
+| `REASONING_EFFORT` | Shared text reasoning level: `none` … `max`, default `high` |
+| `GENERATION_START_DELAY_MS`, `GENERATION_CONCURRENCY` | Shared batch pacing; delays clamp to 200–5000 ms, concurrency to 1–50 |
+| `IMAGE_TOOL_MODEL_INCLUDE` | Whether route `a` sends `tools[].model`; accepts `0`/`1`, `off`/`on`, `false`/`true` |
+| `DIRECT_IMAGE_STREAM` | Whether the direct `b` channel streams image responses; other channels ignore it |
+
+These seeds apply on first load. Once a browser saves its own settings, the saved values win.
+
 ### Environment variables
 
 Copy `.env.example` for a local starting point. Important variables include:
@@ -240,11 +253,18 @@ OPENAI_API_KEY=your_api_key_here
 OPENAI_BASE_URL=https://api.openai.com/v1
 RESPONSES_MODEL=gpt-6-luna
 IMAGE_TOOL_MODEL=gpt-image-2
+IMAGE_TOOL_MODEL_INCLUDE=0
 IMAGE_QUALITY=high
+IMAGE_SIZE=1024x1280
+IMAGE_FORMAT=png
+REASONING_EFFORT=high
+GENERATION_START_DELAY_MS=1000
+GENERATION_CONCURRENCY=20
 DIRECT_IMAGE_BASE_URL=https://api.openai.com/v1
 DIRECT_IMAGE_API_KEY=
 DIRECT_IMAGE_ENDPOINT_PATH=images/generations
 DIRECT_IMAGE_MODEL=gpt-image-2
+DIRECT_IMAGE_STREAM=0
 DIRECT_TEXT_BASE_URL=https://api.openai.com/v1
 DIRECT_TEXT_API_KEY=
 DIRECT_TEXT_ENDPOINT_PATH=responses

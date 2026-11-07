@@ -227,11 +227,18 @@ OPENAI_API_KEY=<your-api-key>
 OPENAI_BASE_URL=https://api.openai.com/v1
 RESPONSES_MODEL=gpt-6-luna
 IMAGE_TOOL_MODEL=gpt-image-2
+IMAGE_TOOL_MODEL_INCLUDE=0
 IMAGE_QUALITY=high
+IMAGE_SIZE=1024x1280
+IMAGE_FORMAT=png
+REASONING_EFFORT=high
+GENERATION_START_DELAY_MS=1000
+GENERATION_CONCURRENCY=20
 DIRECT_IMAGE_BASE_URL=https://api.openai.com/v1
 DIRECT_IMAGE_API_KEY=
 DIRECT_IMAGE_ENDPOINT_PATH=images/generations
 DIRECT_IMAGE_MODEL=gpt-image-2
+DIRECT_IMAGE_STREAM=0
 DIRECT_TEXT_BASE_URL=https://api.openai.com/v1
 DIRECT_TEXT_API_KEY=
 DIRECT_TEXT_ENDPOINT_PATH=responses
@@ -258,6 +265,12 @@ IMAGE_STUDIO_DNS_FALLBACK_SERVERS=
 | `DIRECT_TEXT_BASE_URL` / `DIRECT_TEXT_API_KEY` / `DIRECT_TEXT_ENDPOINT_PATH` / `DIRECT_TEXT_MODEL` | 直连模式的文本/视觉 API 配置；分别对应地址、密钥、接口后缀和文本/视觉模型 |
 | `GROK_BASE_URL` / `GROK_API_KEY` / `GROK_ENDPOINT_PATH` / `GROK_IMAGE_MODEL` | 独立的 Grok 生图与编辑配置；分别对应地址、密钥、接口后缀和图像模型 |
 | `DIRECT_BASE_URL` / `DIRECT_API_KEY` / `DIRECT_ENDPOINT_PATH` / `DIRECT_RESPONSES_MODEL` | 旧版直接调用变量，仅用于兼容回退；新配置请使用上面两组变量 |
+| `IMAGE_ROUTE` | 启动时的生图通道：`a` 路由、`b` 直连、`c` 模型协议、`d` Grok |
+| `IMAGE_QUALITY` / `IMAGE_SIZE` / `IMAGE_FORMAT` | 四个通道共用的生成默认值；`IMAGE_QUALITY` 也接受 `auto` |
+| `REASONING_EFFORT` | 共用的文本思考等级：`none`…`max`，默认 `high` |
+| `GENERATION_START_DELAY_MS` / `GENERATION_CONCURRENCY` | 共用的批量节奏；延迟收敛到 200–5000 毫秒，并发收敛到 1–50 |
+| `IMAGE_TOOL_MODEL_INCLUDE` | 路由模式是否发送 `tools[].model`；接受 `0`/`1`、`off`/`on`、`false`/`true` |
+| `DIRECT_IMAGE_STREAM` | 直连通道是否流式输出生图结果；其他通道不读取该开关 |
 | `PORT` | 本地服务端口，默认 `3600` |
 | `HOST` | 监听地址；留空时为 `127.0.0.1` |
 | `IMAGE_STUDIO_OUTPUT_DIR` | 自定义生成文件根目录 |
@@ -270,6 +283,8 @@ IMAGE_STUDIO_DNS_FALLBACK_SERVERS=
 | `IMAGE_STUDIO_ENABLE_TEST_MOCKS` | 仅测试用途。必须与 `IMAGE_STUDIO_MOCK_IMAGE_GENERATION=1`、`IMAGE_STUDIO_OUTPUT_DIR` 和 `IMAGE_STUDIO_LOCAL_DATA_DIR` 同时设置，才会启用本地假图生成；缺一即忽略并打印告警 |
 
 真实 `.env` 已被 `.gitignore` 排除，但仅创建该文件不会让本地服务自动读取它。云端部署请使用平台 Secret 或环境变量，不要把密钥写入仓库。
+
+这些环境变量是**首次访问的初值**：服务端每次启动按 env 计算配置，浏览器第一次加载时拿到这套值并写入界面；此后用户在设置页保存过的配置以浏览器为准。
 
 ### 局域网访问与请求令牌
 
