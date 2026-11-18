@@ -2573,7 +2573,15 @@ test("prompt template panel stays inside the preview content surface", async () 
   assert.match(panelRule, /height:\s*100%;/);
   assert.match(panelRule, /container-type:\s*inline-size;/);
   assert.doesNotMatch(panelRule, /prompt-template-settings-edge/);
-  assert.match(bodyRule, /grid-template-columns:\s*164px\s+minmax\(0,\s*1fr\)\s+248px;/);
+  // 提示词模板弹窗只保留「我的模板」一栏：模板分类与模板目录不再展示，正文区退化为单列。
+  assert.match(bodyRule, /grid-template-columns:\s*minmax\(0,\s*1fr\);/);
+  assert.doesNotMatch(bodyRule, /grid-template-columns:\s*\d+px/);
+  assert.match(
+    styles,
+    /\.prompt-template-body > \.prompt-template-sidebar,[\s\S]{0,200}?display:\s*none;/,
+  );
+  // 窄容器曾把三列改成 142px/216px，隐藏两栏后必须也是单列，否则会被重新拉回三列。
+  assert.doesNotMatch(styles, /grid-template-columns:\s*142px\s+minmax\(0,\s*1fr\)\s+216px;/);
   assert.match(bodyRule, /overflow:\s*hidden;/);
   assert.doesNotMatch(app, /syncPromptTemplateSettingsEdge|--prompt-template-settings-edge/);
   assert.match(app, /studioHeightObserver\.observe\(refs\.settingsPanel\);/);

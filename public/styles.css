@@ -13893,10 +13893,18 @@ html[data-theme="light"] .lightbox-fields .detail-field {
 .prompt-template-body {
   min-height: 0;
   display: grid;
-  grid-template-columns: 164px minmax(0, 1fr) 248px;
+  /* 模板分类与模板目录两栏已隐藏，正文区只剩「我的模板」一栏。 */
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 10px 12px 12px;
   overflow: hidden;
+}
+
+/* 模板分类（浏览维度）与模板目录（520 组配对模板）不再展示，
+   用户只用「我的模板」+ 导入的分享口令走套图生成。 */
+.prompt-template-body > .prompt-template-sidebar,
+.prompt-template-body > .prompt-template-library-area {
+  display: none;
 }
 
 .prompt-template-list {
@@ -21914,10 +21922,18 @@ html .prompt-template-head > .toolbar-button {
 .prompt-template-body {
   min-height: 0;
   display: grid;
-  grid-template-columns: 164px minmax(0, 1fr) 248px;
+  /* 模板分类与模板目录两栏已隐藏，正文区只剩「我的模板」一栏。 */
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 10px 12px 12px;
   overflow: hidden;
+}
+
+/* 模板分类（浏览维度）与模板目录（520 组配对模板）不再展示，
+   用户只用「我的模板」+ 导入的分享口令走套图生成。 */
+.prompt-template-body > .prompt-template-sidebar,
+.prompt-template-body > .prompt-template-library-area {
+  display: none;
 }
 
 .prompt-template-sidebar,
@@ -22460,7 +22476,7 @@ html .prompt-template-head > .toolbar-button {
 
 @container (max-width: 1200px) {
   .prompt-template-body {
-    grid-template-columns: 142px minmax(0, 1fr) 216px;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .prompt-template-library-grid[data-view="image"] {
@@ -22483,7 +22499,8 @@ html .prompt-template-head > .toolbar-button {
 
   .prompt-template-body {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: max-content minmax(300px, 1fr) 320px;
+    /* 只剩「我的模板」一栏，不再需要为分类与目录预留两行。 */
+    grid-template-rows: minmax(0, 1fr);
     align-content: start;
     overflow: auto;
     padding: 8px 10px 10px;
