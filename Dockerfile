@@ -43,6 +43,16 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
+# 镜像自述版本。由 start.sh 传入当前 git commit，写进标准 OCI revision 标签，
+# 部署后可用 `docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'`
+# 核对容器里跑的到底是哪一份代码。
+#
+# ⚠️ 这几行**必须**排在下面的 COPY 之前。Docker 从被引用的指令起向后失效缓存：
+# 放在 COPY public 之后的话，commit 变了也不会让静态资源层失效，于是出现
+# 「宿主机已经 pull 到新提交、容器里还是旧 app.js」——排查时只能靠猜。
+ARG GIT_COMMIT=unknown
+LABEL org.opencontainers.image.revision=${GIT_COMMIT}
+
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
 
 COPY --chown=node:node package.json ./

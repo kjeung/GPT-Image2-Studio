@@ -147,9 +147,54 @@ if ! docker network inspect "$TRAEFIK_NET_VALUE" >/dev/null 2>&1; then
   warn "（或者把 .env 里的 TRAEFIK_NET 指向你已有的 Traefik 网络。）"
 fi
 
-# ---- 启动 ------------------------------------------------------------------
-info "启动容器..."
-docker compose up -d --build
+# ---- 构建并启动 ------------------------------------------------------------
+# 取当前 commit：既作为构建参数写进镜像标签，也作为启动后核对的基准。
+if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+  GIT_COMMIT=$(git rev-parse HEAD)
+else
+  GIT_COMMIT="unknown"
+  warn "当前目录不是 git 仓库，无法核对运行版本。"
+fi
+info "当前提交：${GIT_COMMIT:0:12}"
+
+# --force-recreate 是必需的，不是保险：`up -d` 对已存在的容器只做「确保它在跑」，
+# 即使镜像换了也**不会**用新镜像替换容器。曾因此出现「宿主机已 pull 到新提交、
+# 页面仍是旧代码」，而 git log 看起来一切正常，极难排查。
+info "构建镜像..."
+docker compose build --build-arg GIT_COMMIT="$GIT_COMMIT"
+
+info "启动容器（强制替换既有容器）..."
+docker compose up -d --force-recreate
+
+# ---- 核对：容器里跑的到底是不是当前提交 ------------------------------------
+# 不核对就只是「我以为部署好了」。这一层挡住的是「构建成功但镜像没换」
+# 「容器没被替换」这类静默失败 —— 它们不会报错，只会安静地跑旧代码。
+if [ "$GIT_COMMIT" != "unknown" ]; then
+  running_revision=$(docker inspect gpt-image2-studio \
+    --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null || echo "")
+  if [ -z "$running_revision" ] || [ "$running_revision" = "<no value>" ]; then
+    warn "容器镜像没有 revision 标签，无法核对运行版本（可能是旧镜像）。"
+  elif [ "$running_revision" != "$GIT_COMMIT" ]; then
+    fail "运行版本与当前提交不一致：容器=${running_revision:0:12} 当前=${GIT_COMMIT:0:12}
+镜像没有真正更新。请检查构建日志，或执行：
+  docker compose build --no-cache --build-arg GIT_COMMIT=$GIT_COMMIT
+  docker compose up -d --force-recreate"
+  else
+    info "运行版本校验通过：容器与当前提交一致（${GIT_COMMIT:0:12}）。"
+  fi
+fi
+
+# ---- 静态资源自检 ----------------------------------------------------------
+# 再硬核一层：直接从容器里读 app.js 的关键指纹。版本标签可能因为各种原因
+# 与实际文件不符，读文件不会骗人。
+if docker exec gpt-image2-studio test -f /app/public/app.js 2>/dev/null; then
+  if docker exec gpt-image2-studio grep -q "getGridThumbnailUrl" /app/public/app.js 2>/dev/null; then
+    info "静态资源自检通过。"
+  else
+    warn "容器内 app.js 缺少预期的新代码（getGridThumbnailUrl）。"
+    warn "很可能是镜像未重建，或 public/ 未随提交更新。"
+  fi
+fi
 
 info "完成。"
 echo
@@ -158,3 +203,4 @@ echo "  把它纳入 Traefik 的 file provider 监听目录（或软链过去）
 echo "  访问 https://<你的域名> 并完成 Authentik 登录。"
 echo
 echo "  提示：容器本身没有鉴权，同网络内的其他容器可以绕过 Authentik 直连它。"
+echo "  浏览器请硬刷新（Ctrl+Shift+R）以丢弃缓存的旧 app.js / styles.css。"
