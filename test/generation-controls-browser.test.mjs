@@ -15,6 +15,7 @@ import { normalizeOutputFormat } from "../lib/output-format-options.mjs";
 import { normalizeGenerationSize, normalizeModelProtocolImageSize } from "../lib/generation-size-options.mjs";
 import { createConfigModelPickerController } from "../lib/config-model-picker.mjs";
 import { DEFAULT_REASONING_EFFORT, REASONING_EFFORT_OPTIONS } from "../lib/studio-constants.mjs";
+import { normalizePromptTemplateParams } from "../lib/studio-enhancements.mjs";
 
 const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
 const qualityFields = ["qualityInput", "creationQualityInput", "portraitQualityInput", "articleIllustrationQualityInput", "pptQualityInput"];
@@ -89,6 +90,7 @@ function createHarness({ route = "a", browserConfig = {} } = {}) {
     DEFAULT_UI_RATIO: "1:1", DEFAULT_UI_RATIO_LABEL: "1:1",
     getRatioOption: () => ({ value: "1:1", baseSize: "1024x1024" }), getSelectedGenerationSize: () => "auto",
     nowIso: () => new Date().toISOString(), buildPromptModePrompt: () => "test prompt",
+    buildPromptEnhancementSuffix: () => "", normalizePromptTemplateParams,
     getGenerationReferenceFile: (item) => item.file, buildGenerationTaskStatusText: () => "queued",
   };
   for (const name of [

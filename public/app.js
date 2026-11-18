@@ -184,7 +184,12 @@ const REASONING_LABELS = {
 };
 const DEFAULT_LIMITS = { maxParallelTasksPerSession: 15, maxReferenceImages: 15, maxCreationReferenceImages: 15, maxPortraitPersonReferenceImages: 3, maxPortraitActionReferenceImages: 3, maxPortraitAccessoryReferenceImages: 9 }; const PROMPT_FILMSTRIP_INITIAL_HISTORY_LIMIT = 10; const PROMPT_FILMSTRIP_MAX_HISTORY_LIMIT = 50; const PROMPT_FILMSTRIP_JOB_LIMIT = MAX_PROMPT_QUEUE_SIZE;
 const CREATION_IMAGE_COUNT_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
-const DEFAULT_PROMPT_ENHANCE_TEXT = "Quality only; original prompt and references take priority. 8K ultra-HD look, clear subject, precise focus, natural edges, style-faithful detail, smooth gradients, clean tonal separation. Reduce unintended blur, aliasing, banding, compression artifacts, oversharpening, repeated details. Preserve subject, identity, count, composition, proportions, text, style, color, lighting, materials, intentional blur/grain/pixel art/minimalism. Add no objects, details or quality labels. Size follows settings."; function buildPromptModePrompt() {
+const DEFAULT_PROMPT_ENHANCE_TEXT = "Quality only; original prompt and references take priority. 8K ultra-HD look, clear subject, precise focus, natural edges, style-faithful detail, smooth gradients, clean tonal separation. Reduce unintended blur, aliasing, banding, compression artifacts, oversharpening, repeated details. Preserve subject, identity, count, composition, proportions, text, style, color, lighting, materials, intentional blur/grain/pixel art/minimalism. Add no objects, details or quality labels. Size follows settings."; function buildPromptEnhancementSuffix() {
+  if (!state.promptEnhanceEnabled) { return ""; }
+  const enhanceText = String(refs.promptEnhanceInput?.value || "").trim();
+  return enhanceText ? `${enhanceText.startsWith(",") ? "" : "\n\n"}${enhanceText}` : "";
+}
+function buildPromptModePrompt() {
   const rawPrompt = refs.promptInput.value.trim();
   // 勾了「结合标题分析」才把产品标题带进 prompt；没勾时行为与上游完全一致。
   // 标题为空时不抛错（buildTitleAwarePrompt 会），退回原始 prompt，由套图入口
@@ -193,9 +198,7 @@ const DEFAULT_PROMPT_ENHANCE_TEXT = "Quality only; original prompt and reference
   const prompt = state.promptAnalyzeTitle && title
     ? buildTitleAwarePrompt(rawPrompt, title, true)
     : rawPrompt;
-  if (!state.promptEnhanceEnabled) { return prompt; }
-  const enhanceText = String(refs.promptEnhanceInput?.value || "").trim();
-  return enhanceText ? `${prompt}${enhanceText.startsWith(",") ? "" : "\n\n"}${enhanceText}` : prompt;
+  return `${prompt}${buildPromptEnhancementSuffix()}`;
 } function syncPromptEnhanceMode() { refs.promptEnhanceToggle.classList.toggle("is-active", state.promptEnhanceEnabled); refs.promptEnhanceToggle.setAttribute("aria-checked", String(state.promptEnhanceEnabled)); refs.promptEnhanceToggle.querySelector("small").textContent = getUiLanguageText(state.promptEnhanceEnabled ? "promptEnhanceOn" : "promptEnhanceOff"); refs.promptEnhanceField.classList.toggle("hidden", !state.promptEnhanceEnabled); scheduleStudioPromptFillSync(); } function togglePromptEnhanceMode() { state.promptEnhanceEnabled = !state.promptEnhanceEnabled; syncPromptEnhanceMode(); if (state.promptEnhanceEnabled) { refs.promptEnhanceInput.focus(); } }
 const PROMPT_TEMPLATE_STORAGE_KEY = "image-studio-prompt-templates-v2";
 const PROMPT_SET_STORAGE_KEY = "image-studio-prompt-sets-v1";
@@ -19777,16 +19780,20 @@ function buildStyleTransferPrompt() {
   return parts.join(" ");
 }
 
-function createJob() {
-  const ratioOption = getRatioOption(refs.ratioInput.value || DEFAULT_UI_RATIO);
+function createJob({ prompt = "", params = null, promptTemplateId = "", promptTemplateName = "", promptSetId = "", promptSetName = "" } = {}) {
+  // 套图链路会把模板自带的提示词与参数传进来；上游 v0.2.116 的无参版本会静默丢掉
+  // 它们，导致 job.prompt 落回空的输入框、整批提交被服务端以「提示词不能为空」拒绝
+  // （issue #16）。默认值保证单发生成路径的行为完全不变。
+  const normalizedParams = normalizePromptTemplateParams(params);
+  const ratioOption = getRatioOption(normalizedParams?.ratio || refs.ratioInput.value || DEFAULT_UI_RATIO);
   const referenceFiles = state.referenceFiles.map(getGenerationReferenceFile);
   const referenceImageNames = state.referenceFiles.map((item) => item.file.name);
-  const sizeSetting = getSelectedGenerationSize();
+  const sizeSetting = normalizedParams?.size || getSelectedGenerationSize();
   const size = resolveGenerationSizeForSelectedRoute(ratioOption, sizeSetting);
   const imageBackground = getPromptImageBackground();
   const imageRoute = getSelectedImageRoute();
 
-  return {
+  const job = {
     id: `job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     createdAt: nowIso(),
     imageRoute,
@@ -19797,14 +19804,14 @@ function createJob() {
     sizeSetting,
     size,
     quality: getSelectedImageQuality(),
-    format: imageBackground === "transparent" ? "png" : normalizeOutputFormat(refs.outputFormatInput.value || state.config?.defaults?.format || "png"),
+    format: imageBackground === "transparent" ? "png" : normalizeOutputFormat(normalizedParams?.format || refs.outputFormatInput.value || state.config?.defaults?.format || "png"),
     imageBackground,
     baseUrl: state.config?.baseUrl || refs.baseUrlInput.value.trim(),
     responsesModel: state.config?.responsesModel || refs.responsesModelInput.value.trim() || DEFAULT_RESPONSES_MODEL,
     imageModel: getSelectedImageToolModel(),
     ...(imageRoute === "a" ? { includeImageToolModel: state.config?.includeImageToolModel === true } : {}),
     ...(imageRoute === "b" ? { directImageStream: state.config?.directImageStream === true } : {}),
-    reasoningEffort: getSelectedImageReasoningEffort(),
+    reasoningEffort: normalizedParams?.reasoningEffort || getSelectedImageReasoningEffort(),
     requestRetryCount: 0,
     referenceFiles,
     hasReferenceImage: referenceFiles.length > 0,
@@ -19816,6 +19823,15 @@ function createJob() {
     statusText: buildGenerationTaskStatusText({ statusStage: "queued", statusText: "等待并发槽位" }),
     previewUrl: "",
   };
+  if (prompt) {
+    // 套图给的提示词走同一条增强后缀，否则「增强模式」在套图里会被静默跳过。
+    job.prompt = `${prompt}${buildPromptEnhancementSuffix()}`;
+    job.promptTemplateId = promptTemplateId;
+    job.promptTemplateName = promptTemplateName;
+    job.promptSetId = promptSetId;
+    job.promptSetName = promptSetName;
+  }
+  return job;
 }
 
 function createStyleTransferJob() {
