@@ -21,12 +21,20 @@ docker network create traefik_net   # 若尚不存在
 ## 部署
 
 ```sh
-cp deploy/env.example .env     # 填 API Key
-docker compose up -d --build
+cp .env.example .env          # 填 API Key 与 Traefik 相关变量
+./start.sh                    # 渲染 traefik-dynamic.yml + 起容器
 docker compose logs -f studio
 ```
 
-首次启动会打印输出目录与配置文件位置。确认容器在跑：
+`start.sh` 做四件事，缺一步都会让部署"看起来起来了、实际没通"：
+
+1. 读 `.env`，四个必需变量（`STUDIO_DOMAIN`、`TRAEFIK_ENTRYPOINT`、
+   `TRAEFIK_CERT_RESOLVER`、`AUTHENTIK_FORWARD_AUTH_URL`）为空就报错退出；
+2. 用它们渲染 `traefik-dynamic.yml`；
+3. 校验渲染结果没有 `__占位符__` 残留——半渲染的路由在 Traefik 侧只会静默失效；
+4. 建 `DATA_DIR` 并启动 compose。
+
+确认容器在跑：
 
 ```sh
 docker compose ps              # 应显示 healthy
@@ -34,7 +42,9 @@ docker compose ps              # 应显示 healthy
 
 ## 接 Traefik + Authentik
 
-参考 `deploy/traefik-example.yml`。把片段并进你现有的动态配置，需要：
+参考 `traefik-dynamic.yml.example`（模板，真实值由 `start.sh` 从 `.env`
+渲染成同目录的 `traefik-dynamic.yml`，后者已 gitignore）。把渲染产物纳入你
+Traefik 的 file provider 监听目录，需要：
 
 1. **Authentik 前向认证**中间件（由 Authentik 的 Proxy Provider / outpost 生成），
    认证发生在这里，不在 node 里。
@@ -45,7 +55,8 @@ docker compose ps              # 应显示 healthy
 
 ## 数据与持久化
 
-宿主机当前目录下的 `studio-data/` 以绑定目录挂到 `/data`，其下：
+宿主机当前目录下的 `data/`（可用 `.env` 的 `DATA_DIR` 改）以绑定目录挂到
+`/data`，其下：
 
 | 路径 | 内容 |
 |---|---|
@@ -56,7 +67,7 @@ docker compose ps              # 应显示 healthy
 两个目录由 `compose.yml` 显式指定。若删掉那两行，应用会回落到
 `~/Pictures` 与仓库根目录 —— **落在容器层，重启即丢**。绑定目录不存在时 compose
 会自动创建，但归属 root 而 node 用户写不进去，首次启动前先
-`mkdir -p studio-data && chown 1000:1000 studio-data`。
+`mkdir -p data && chown 1000:1000 data`（`start.sh` 会建目录并在属主不对时提示）。
 
 ## 留存清理
 
@@ -92,6 +103,7 @@ Traefik 读超时短于应用的上游超时。调 `studio-transport` 的 `idleT
 
 本 fork 相对上游 `v0.2.116` 的容器相关改动：
 
-- 新增 `Dockerfile` / `.dockerignore` / `compose.yml` / `deploy/*`。
+- 新增 `Dockerfile` / `.dockerignore` / `compose.yml` / `start.sh` /
+  `traefik-dynamic.yml.example` / `compose.local.yml.example`。
 - 移除应用内鉴权与「非回环 + 明文」启动守卫（上游只面向本机回环运行）。
 - 保留上游的 `extensions/`，因为扩展打包接口需要它。

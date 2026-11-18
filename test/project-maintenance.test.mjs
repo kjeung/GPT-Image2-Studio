@@ -327,8 +327,10 @@ test("fork-only capabilities stay present after any upstream re-base", async () 
     { path: "../compose.yml", contains: "gpt-image2-studio" },
     { path: "../docker/entrypoint.sh", contains: "retention-gc.mjs" },
     { path: "../docker/retention-gc.mjs", contains: "quarantineJsonFile" },
-    { path: "../deploy/env.example", contains: "Traefik" },
-    { path: "../deploy/traefik-example.yml", contains: "authentik" },
+    { path: "../.env.example", contains: "AUTHENTIK_FORWARD_AUTH_URL" },
+    { path: "../start.sh", contains: "占位符未替换" },
+    { path: "../traefik-dynamic.yml.example", contains: "authentik" },
+    { path: "../compose.local.yml.example", contains: "127.0.0.1" },
     { path: "../docs/docker-deployment.md", contains: "不发布任何宿主机端口" },
   ];
 

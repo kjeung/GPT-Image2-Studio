@@ -11,6 +11,12 @@ test-results/
 .local/
 .local-data/
 studio-data/
+
+# 容器部署：数据目录与渲染产物。前者是运行时数据，后者含真实域名。
+/data/
+traefik-dynamic.yml
+# 本机调试覆盖文件（含内部地址）；只有 .example 入库。
+compose.local.yml
 .playwright-cli/
 .playwright-mcp/
 .superpowers/

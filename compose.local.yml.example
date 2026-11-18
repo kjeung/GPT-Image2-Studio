@@ -1,0 +1,22 @@
+# GPT-Image2-Studio — 本机调试用 Compose 覆盖文件
+#
+#   cp compose.local.yml.example compose.local.yml
+#   docker compose -f compose.yml -f compose.local.yml up -d
+#
+# 这份覆盖只做一件事：把 3600 端口绑到 **127.0.0.1**，方便在宿主机上
+# 直接访问 / 调试。
+#
+# ⚠️ 为什么必须写 127.0.0.1 而不是裸 3600：
+#   compose 的 `ports: - "3600:3600"` 默认绑 0.0.0.0，等于向整个局域网发布
+#   这个容器。本 fork 没有应用内鉴权，端口一旦对外，任何能连到这台机器的人
+#   都能驱动 studio 并消耗你的 API 额度。绑 127.0.0.1 则只有本机能访问。
+#
+# ⚠️ 这份文件本身在 .gitignore 里（compose.local.yml），只有 .example 入库，
+# 因为真实调试环境可能有内部地址，不应进入版本库。
+#
+# 正常对外访问请走 compose.yml + Traefik 路由，不要依赖这份文件。
+
+services:
+  studio:
+    ports:
+      - "127.0.0.1:3600:3600"

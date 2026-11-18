@@ -606,6 +606,36 @@ GPT-Image2-Studio 面向个人创作者、电商运营、设计师和内容团�
 
 ## 部署方式
 
+### Docker（Traefik + Authentik）
+
+容器设计为挂在 Traefik + Authentik 后面，**不发布任何宿主端口**：`compose.yml` 只写 `expose:`，容器只能经外部 `traefik_net` 网络访问。
+
+> **访问控制不在镜像里。** 本 fork 移除了应用自身的令牌 / Origin / Host 校验（见 `lib/local-server-auth.mjs`）。任何能直接连到容器的对象——包括同一个 docker 网络里的其他容器——都完全绕过 Authentik。
+
+仓库根目录的交付物：
+
+| 文件 | 用途 |
+| --- | --- |
+| `compose.yml` | 部署本体。无 `ports:`、`traefik.enable: "false"`、绑定挂载 `${DATA_DIR:-./data}` |
+| `start.sh` | 由模板渲染 `traefik-dynamic.yml`，校验后执行 `docker compose up -d --build` |
+| `traefik-dynamic.yml.example` | Traefik file provider 模板，所有值写成 `__占位符__` |
+| `compose.local.yml.example` | 本机调试覆盖，只绑 `127.0.0.1:3600` |
+| `.env.example` | 全部变量，附「为什么」注释 |
+
+快速开始：
+
+```bash
+cp .env.example .env      # 填入 API Key 与 Traefik 相关变量
+docker network create traefik_net    # 若尚不存在
+./start.sh
+```
+
+`start.sh` 在必需变量为空时拒绝启动；渲染后若仍有 `__占位符__` 残留也会拒绝继续——半渲染的路由在 Traefik 侧只会静默失效，比在这里报错难排查得多。
+
+持久化是普通绑定挂载（`DATA_DIR`，默认 `./data`），不用 docker volume，备份即复制目录。容器以 uid 1000 运行；若写盘失败执行 `chown -R 1000:1000 ./data`。
+
+真实值只存在于 `.env` 与渲染出的 `traefik-dynamic.yml`，两者都在 .gitignore 里；入库文件一律用占位符或 `example.com`。
+
 ### Vercel
 
 仓库中的 `vercel.json` 为 `server.mjs` 配置了依赖包含范围和 `300` 秒函数时长，并在云端安装时使用 `npm ci --omit=dev`，避免把开发依赖带入 Serverless Function。可通过 Vercel 导入仓库或 CLI 创建 Preview 部署：

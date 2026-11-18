@@ -417,6 +417,36 @@ The extension reads supported product regions only after the user starts a colle
 
 ## Deployment and packaging
 
+### Docker with Traefik + Authentik
+
+The container is meant to sit behind Traefik and Authentik. It publishes **no** host port: `compose.yml` only declares `expose:`, and the container is reachable solely over the external `traefik_net` docker network.
+
+> **Access control is not in the image.** This fork removes the application's own token/Origin/Host checks (see `lib/local-server-auth.mjs`). Anything that can reach the container directly — including any other container on the same docker network — bypasses Authentik entirely.
+
+Deliverables at the repository root:
+
+| File | Purpose |
+| --- | --- |
+| `compose.yml` | The stack. No `ports:`, `traefik.enable: "false"`, bind-mounted `${DATA_DIR:-./data}` |
+| `start.sh` | Renders `traefik-dynamic.yml` from the template, validates it, then `docker compose up -d --build` |
+| `traefik-dynamic.yml.example` | Traefik file-provider template, all values as `__PLACEHOLDER__` |
+| `compose.local.yml.example` | Host-local debugging override, binds `127.0.0.1:3600` only |
+| `.env.example` | Every variable, with comments explaining why |
+
+Quick start:
+
+```bash
+cp .env.example .env      # fill in API keys and the Traefik variables
+docker network create traefik_net    # if it does not exist yet
+./start.sh
+```
+
+`start.sh` refuses to run when a required variable is empty, and refuses to continue if the rendered file still contains `__PLACEHOLDER__` tokens — a half-rendered route fails silently in Traefik, which is far harder to diagnose than an error here.
+
+Persistence is a plain bind mount (`DATA_DIR`, default `./data`), not a docker volume, so backups are a directory copy. The container runs as uid 1000; if writing to the data directory fails, `chown -R 1000:1000 ./data`.
+
+Real values live only in `.env` and the rendered `traefik-dynamic.yml`, both of which are git-ignored. Committed files use placeholders or `example.com` throughout.
+
 ### Vercel
 
 The repository includes `vercel.json` and a standard request handler for Serverless functions. Vercel uses ephemeral filesystems and cloud-specific request lifecycles. Validate a Preview deployment, SSE completion, long-running jobs, and `/api/config` before a production deployment.

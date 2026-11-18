@@ -1,0 +1,86 @@
+# GPT-Image2-Studio — Traefik file provider 动态配置模板
+#
+# 这是一份**模板**，不是可直接使用的配置：所有用双下划线包裹的字段都是
+# 占位符，由 start.sh 读取 .env 后渲染成 traefik-dynamic.yml。
+# 渲染产物在本仓库的 .gitignore 里，真实域名永远不进入版本库。
+#
+# 为什么需要这一层：本 fork 移除了应用自身的鉴权（见 lib/local-server-auth.mjs），
+# 容器不发布任何宿主端口，能被访问到的唯一入口就是这里。没有 Authentik 认证，
+# 任何能打到 Traefik 的人都可以驱动 studio 并消耗你的 API 额度。
+#
+# 用法：
+#   1. cp .env.example .env 并填好所需变量（含 __STUDIO_DOMAIN__ 等真实值）
+#   2. ./start.sh          # 渲染本模板 + 起容器
+#   3. Traefik 侧把渲染出的 traefik-dynamic.yml 纳入 file provider 的监听目录
+
+http:
+  routers:
+    studio:
+      rule: "Host(`__STUDIO_DOMAIN__`)"
+      entryPoints:
+        - __TRAEFIK_ENTRYPOINT__
+      tls:
+        certResolver: __TRAEFIK_CERT_RESOLVER__
+      # 认证在前、headers 在后。顺序有意义：先挡住未授权请求，再给放行的响应
+      # 加安全头。反过来会让未认证响应也带上这些头，徒增信息面。
+      middlewares:
+        - authentik-auth
+        - studio-security-headers
+        - studio-sse
+      service: studio
+
+  middlewares:
+    # ---- Authentik 前向认证 ----------------------------------------------
+    # 由 Authentik 的 Proxy Provider 生成；实际部署时通常由 Authentik 自己的
+    # outpost 注入这一条。认证发生在 Traefik 这一层，不发生在 node 里。
+    authentik-auth:
+      forwardAuth:
+        address: "__AUTHENTIK_FORWARD_AUTH_URL__"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - X-authentik-username
+          - X-authentik-groups
+          - X-authentik-email
+          - X-authentik-name
+          - X-authentik-uid
+
+    # ---- 安全头 ------------------------------------------------------------
+    studio-security-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        customFrameOptionsValue: "SAMEORIGIN"
+
+    # ---- SSE 必须的关闭缓冲 -----------------------------------------------
+    # studio 的生图接口用 text/event-stream 推事件，一次生成实测可持续很久
+    # （默认上游超时 20 分钟、上限 1 小时，见 IMAGE_STUDIO_CREATION_UPSTREAM_TIMEOUT_MS）。
+    # Traefik 默认读超时会提前切断连接；缓冲则把事件攒到结束才一次性吐出，
+    # 前端表现为「进度卡住然后突然完成」。这里两项都要关掉。
+    studio-sse:
+      buffering:
+        maxRequestBodyBytes: 0
+        memRequestBodyBytes: 0
+        maxResponseBodyBytes: 0
+        memResponseBodyBytes: 0
+        retryExpression: "IsNetworkError() && Attempts() < 2"
+
+  serversTransports:
+    # 读超时必须长于应用自己的上游超时，否则代理先断、应用还在等上游。
+    studio-transport:
+      forwardingTimeouts:
+        dialTimeout: 30s
+        responseHeaderTimeout: 0
+        idleTimeout: 3600s
+
+  services:
+    studio:
+      loadBalancer:
+        serversTransport: studio-transport
+        servers:
+          # 容器名即 traefik_net 内的 DNS 别名，Traefik 靠它回源。
+          - url: "http://__STUDIO_CONTAINER_NAME__:__STUDIO_INTERNAL_PORT__"
