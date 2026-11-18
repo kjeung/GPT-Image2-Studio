@@ -5,7 +5,7 @@ import { buildGalleryReferenceFilterOptions, buildGallerySections, buildGalleryS
 import { applyGalleryRenderWindowToSections, resolveGalleryLoadMoreState, resolveNextGalleryRenderLimit } from "/lib/gallery-window.mjs?v=20261105-gallery-page-scoped-window-1";
 import { buildGalleryMetadataCacheEntry, collectGalleryMetadataRepairPatch, mergeGalleryItemWithCachedMetadata, pruneGalleryMetadataCache } from "/lib/gallery-metadata-recovery.mjs";
 import { getGenerationSizeOptions, getModelProtocolImageSizeOptions, normalizeGenerationSize, normalizeModelProtocolImageSize } from "/lib/generation-size-options.mjs?v=20260614-image2-sizes-1";
-import { getOutputFormatOptions, normalizeOutputFormat, } from "/lib/output-format-options.mjs?v=20260504-vercel-static-lib-1";
+import { DEFAULT_OUTPUT_FORMAT, getOutputFormatOptions, normalizeOutputFormat, } from "/lib/output-format-options.mjs?v=20260504-vercel-static-lib-1";
 import { getGrokImageQualityOptions, getImageQualityOptions, normalizeImageQualityForRoute } from "/lib/image-quality-options.mjs";
 import { normalizeReferenceAnalysisLanguage, } from "/lib/reference-analysis-language.mjs?v=20260522-reference-language-1";
 import { shouldReusePreviewLoadingShell } from "/lib/preview-loading-shell.mjs";
@@ -60,7 +60,7 @@ import { buildCreationRecordListModel, createCreationRecordListState, loadMoreCr
 import { createCreationRecordListRow } from "/lib/creation-record-list-view.mjs?v=20260807-creation-record-split-workspace-1";
 import { ensureLazyViewModule, getMountedLazyViewModule } from "/lib/view-mode-loader.mjs?v=20261016-remove-workbench-1";
 import { appendBrowserConfigToFormData, getBrowserPrivateConfigRequestPayload, getOrCreateClientSessionId, readBrowserPrivateConfig, restoreDesktopBrowserConfig, saveBrowserPrivateConfig, toPublicBrowserConfig } from "/lib/browser-config.mjs";
-import { cacheBrowserGalleryItem, clearBrowserImageCache, dataUrlToBlob, deleteBrowserCachedGalleryItem, fetchServerImageAsDataUrl, getBrowserCachedImageData, getCardThumbnailUrl, getImageUrl, getServerImageUrl, getServerThumbnailUrl, getThumbnailUrl, isCacheableBrowserImageUrl, mergeServerAndBrowserGalleryItems, readBrowserCachedGalleryItems } from "/lib/browser-image-cache.mjs";
+import { cacheBrowserGalleryItem, clearBrowserImageCache, dataUrlToBlob, deleteBrowserCachedGalleryItem, fetchServerImageAsDataUrl, getBrowserCachedImageData, getCardThumbnailUrl, getGridThumbnailUrl, getImageUrl, getServerImageUrl, getServerThumbnailUrl, getThumbnailUrl, isCacheableBrowserImageUrl, mergeServerAndBrowserGalleryItems, readBrowserCachedGalleryItems } from "/lib/browser-image-cache.mjs";
 import { createImageEditShellBridge } from "/lib/image-edit-shell-bridge.mjs";
 import { createCreationLogoLibraryController } from "/lib/creation-logo-library.mjs";
 import { consumeSse, requestGenerationStream } from "/lib/generation-client.mjs";
@@ -4490,7 +4490,7 @@ function createImageDecompositionJob() {
     sizeSetting,
     size,
     quality: getSelectedImageQuality(),
-    format: normalizeOutputFormat(refs.outputFormatInput.value || state.config?.defaults?.format || "png"),
+    format: normalizeOutputFormat(refs.outputFormatInput.value || state.config?.defaults?.format || DEFAULT_OUTPUT_FORMAT),
     baseUrl: state.config?.baseUrl || refs.baseUrlInput.value.trim(),
     responsesModel: state.config?.responsesModel || refs.responsesModelInput.value.trim() || DEFAULT_RESPONSES_MODEL,
     imageModel: getSelectedImageToolModel(),
@@ -5408,7 +5408,7 @@ function syncPromptTransparentBackgroundControl() {
   field.hidden = !isSupported;
 
   if (isTransparent) {
-    const currentFormat = normalizeOutputFormat(outputFormatInput.value || "png");
+    const currentFormat = normalizeOutputFormat(outputFormatInput.value || DEFAULT_OUTPUT_FORMAT);
     if (currentFormat !== "png") {
       input.dataset.previousOutputFormat = currentFormat;
     }
@@ -5421,7 +5421,7 @@ function syncPromptTransparentBackgroundControl() {
   outputFormatInput.disabled = isTransparent;
 }
 function renderOutputFormatOptions() {
-  const currentValue = normalizeOutputFormat(refs.outputFormatInput.value || state.config?.defaults?.format || "png");
+  const currentValue = normalizeOutputFormat(refs.outputFormatInput.value || state.config?.defaults?.format || DEFAULT_OUTPUT_FORMAT);
   refs.outputFormatInput.innerHTML = "";
   getOutputFormatOptions().forEach((option) => {
     const element = document.createElement("option");
@@ -6582,7 +6582,7 @@ function syncConfigUi(config) {
   renderOutputFormatOptions();
   renderImageQualityOptions();
   refs.creationOutputFormatInput.value = normalizeOutputFormat(
-    refs.creationOutputFormatInput.value || config.defaults?.format || "png",
+    refs.creationOutputFormatInput.value || config.defaults?.format || DEFAULT_OUTPUT_FORMAT,
   );
   renderSizeOptions();
   renderReferenceAnalysisSizeOptions();
@@ -7556,7 +7556,7 @@ function createFilmstripEntry(key) {
 }
 
 function syncFilmstripMedia(button, item, key = "") {
-  const imageUrl = getThumbnailUrl(item);
+  const imageUrl = getGridThumbnailUrl(item);
   const existingImage = button.querySelector("img");
   const existingGhost = button.querySelector(".filmstrip-ghost");
   const existingLoading = button.querySelector(".generation-loading-shell");
@@ -7939,7 +7939,7 @@ function createRecentOutputItem(item) {
   });
 
   const image = document.createElement("img");
-  setViewportImageSource(image, getThumbnailUrl(item));
+  setViewportImageSource(image, getGridThumbnailUrl(item));
   image.alt = getDisplayPrompt(item);
   image.loading = "lazy";
   button.appendChild(image);
@@ -8021,7 +8021,7 @@ function createGalleryTile(item) {
   });
 
   const image = document.createElement("img");
-  setViewportImageSource(image, getThumbnailUrl(item));
+  setViewportImageSource(image, getGridThumbnailUrl(item));
   image.alt = filename === "图片" ? "生成图片" : `生成图片 ${filename}`;
   image.loading = "lazy";
   button.appendChild(image);
@@ -16750,7 +16750,7 @@ function buildCreationFormData({ sourceFormData = null, effectivePlanOverride = 
     if (effectivePlan.promptPlanningMode === "ai-batch") formData.set("imageCount", String(effectivePlan.carouselImageCount));
   }
 
-  formData.set("format", normalizeOutputFormat(refs.creationOutputFormatInput.value || state.config?.defaults?.format || "png"));
+  formData.set("format", normalizeOutputFormat(refs.creationOutputFormatInput.value || state.config?.defaults?.format || DEFAULT_OUTPUT_FORMAT));
   if (!effectivePlan) {
     formData.set("ratio", refs.creationRatioInput.value || DEFAULT_UI_RATIO);
     formData.set(
@@ -16778,7 +16778,7 @@ function buildCreationLogoBatchFormData() {
   const title = firstSourceName ? `上传图加 Logo ${firstSourceName}` : "上传图加 Logo";
 
   formData.set("title", title);
-  formData.set("format", normalizeOutputFormat(refs.creationOutputFormatInput.value || state.config?.defaults?.format || "png"));
+  formData.set("format", normalizeOutputFormat(refs.creationOutputFormatInput.value || state.config?.defaults?.format || DEFAULT_OUTPUT_FORMAT));
   formData.set("ratio", refs.creationRatioInput.value || DEFAULT_UI_RATIO);
   formData.set(
     "size",
@@ -16823,7 +16823,7 @@ function buildCreationRepairFormData({ itemId = "", scope = "incomplete", set = 
   } else {
     formData.set("scope", scope);
   }
-  formData.set("format", normalizeOutputFormat(snapshotItem.format || "png"));
+  formData.set("format", normalizeOutputFormat(snapshotItem.format || DEFAULT_OUTPUT_FORMAT));
   formData.set("ratio", snapshotItem.ratio || DEFAULT_UI_RATIO);
   formData.set(
     "size",
@@ -17648,7 +17648,7 @@ async function buildCreationMarketingBatchRequestFormData() {
     if (file) formData.append("referenceImages", file);
   });
   appendCurrentConfigToFormData(formData);
-  formData.set("format", normalizeOutputFormat(refs.creationOutputFormatInput.value || state.config?.defaults?.format || "png"));
+  formData.set("format", normalizeOutputFormat(refs.creationOutputFormatInput.value || state.config?.defaults?.format || DEFAULT_OUTPUT_FORMAT));
   formData.set("quality", getSelectedImageQuality(refs.creationQualityInput));
   formData.set("clientSessionId", state.clientSessionId);
   formData.set("listingAgentEnabled", String(Boolean(refs.creationListingAgentEnabledInput?.checked)));
@@ -18025,7 +18025,7 @@ function normalizePortraitSetForView(set = {}) {
     notes: String(set.notes || ""),
     ratio: String(set.ratio || DEFAULT_PORTRAIT_RATIO),
     size: normalizeSizeForSelectedRoute(String(set.ratio || DEFAULT_PORTRAIT_RATIO), set.size),
-    format: String(set.format || "png"),
+    format: String(set.format || DEFAULT_OUTPUT_FORMAT),
     imageCount: Number(set.imageCount) || items.length || 12,
     createdAt: String(set.createdAt || nowIso()),
     updatedAt: String(set.updatedAt || set.createdAt || nowIso()),
@@ -18506,7 +18506,7 @@ function buildPortraitFormData({ includeFiles = true, repair = false, includeAct
     "size",
     normalizeSizeForSelectedRoute(refs.portraitRatioInput?.value || DEFAULT_PORTRAIT_RATIO, refs.portraitSizeInput?.value),
   );
-  formData.set("format", normalizeOutputFormat(refs.portraitOutputFormatInput?.value || state.config?.defaults?.format || "png"));
+  formData.set("format", normalizeOutputFormat(refs.portraitOutputFormatInput?.value || state.config?.defaults?.format || DEFAULT_OUTPUT_FORMAT));
   formData.set("analysis", JSON.stringify(appliedAnalysis));
   formData.set("reasoningEffort", getSelectedReasoningEffort(refs.portraitReasoningEffortInput));
   formData.set("quality", getSelectedImageQuality(refs.portraitQualityInput));
@@ -18762,7 +18762,7 @@ async function previewPortraitPlan() {
         plan.ratio || refs.portraitRatioInput.value || DEFAULT_PORTRAIT_RATIO,
         plan.size || refs.portraitSizeInput.value,
       ),
-      format: plan.format || refs.portraitOutputFormatInput.value || "png",
+      format: plan.format || refs.portraitOutputFormatInput.value || DEFAULT_OUTPUT_FORMAT,
       imageCount: plan.imageCount || plan.items?.length || clampPortraitImageCount(undefined, { write: false }),
       referenceImageNames: getPortraitReferenceFileNames(),
       createdAt,
@@ -18891,7 +18891,7 @@ async function startPortraitGeneration(event) {
       notes: refs.portraitNotesInput.value.trim(),
       ratio: refs.portraitRatioInput.value || DEFAULT_PORTRAIT_RATIO,
       size: normalizeSizeForSelectedRoute(refs.portraitRatioInput.value || DEFAULT_PORTRAIT_RATIO, refs.portraitSizeInput.value),
-      format: refs.portraitOutputFormatInput.value || "png",
+      format: refs.portraitOutputFormatInput.value || DEFAULT_OUTPUT_FORMAT,
       imageCount: draftSet?.items?.length || clampPortraitImageCount(undefined, { write: false }),
       referenceImageNames: getPortraitReferenceFileNames(),
       createdAt: draftSet?.createdAt || createdAt,
@@ -19116,7 +19116,7 @@ function reusePortraitRecordSet() {
     selectedSet.ratio || DEFAULT_PORTRAIT_RATIO,
     selectedSet.size,
   );
-  refs.portraitOutputFormatInput.value = normalizeOutputFormat(selectedSet.format || "png");
+  refs.portraitOutputFormatInput.value = normalizeOutputFormat(selectedSet.format || DEFAULT_OUTPUT_FORMAT);
   const selectedStyles = new Set(selectedSet.selectedStyles || []);
   refs.portraitStyleInputs.forEach((input) => { input.checked = selectedStyles.size > 0 ? selectedStyles.has(input.value) : input.value === "business-profile"; });
   const selectedShotTypes = new Set(selectedSet.selectedShotTypes || []);
@@ -19804,7 +19804,7 @@ function createJob({ prompt = "", params = null, promptTemplateId = "", promptTe
     sizeSetting,
     size,
     quality: getSelectedImageQuality(),
-    format: imageBackground === "transparent" ? "png" : normalizeOutputFormat(normalizedParams?.format || refs.outputFormatInput.value || state.config?.defaults?.format || "png"),
+    format: imageBackground === "transparent" ? "png" : normalizeOutputFormat(normalizedParams?.format || refs.outputFormatInput.value || state.config?.defaults?.format || DEFAULT_OUTPUT_FORMAT),
     imageBackground,
     baseUrl: state.config?.baseUrl || refs.baseUrlInput.value.trim(),
     responsesModel: state.config?.responsesModel || refs.responsesModelInput.value.trim() || DEFAULT_RESPONSES_MODEL,
@@ -19857,7 +19857,7 @@ function createStyleTransferJob() {
     sizeSetting,
     size,
     quality: getSelectedImageQuality(),
-    format: normalizeOutputFormat(refs.outputFormatInput.value || state.config?.defaults?.format || "png"),
+    format: normalizeOutputFormat(refs.outputFormatInput.value || state.config?.defaults?.format || DEFAULT_OUTPUT_FORMAT),
     baseUrl: state.config?.baseUrl || refs.baseUrlInput.value.trim(),
     responsesModel: state.config?.responsesModel || refs.responsesModelInput.value.trim() || DEFAULT_RESPONSES_MODEL,
     imageModel: getSelectedImageToolModel(),
@@ -19912,7 +19912,7 @@ function createReferenceAnalysisJob() {
     sizeSetting,
     size,
     quality: getSelectedImageQuality(),
-    format: normalizeOutputFormat(state.config?.defaults?.format || "png"),
+    format: normalizeOutputFormat(state.config?.defaults?.format || DEFAULT_OUTPUT_FORMAT),
     baseUrl: state.config?.baseUrl || refs.baseUrlInput.value.trim(),
     responsesModel: state.config?.responsesModel || refs.responsesModelInput.value.trim() || DEFAULT_RESPONSES_MODEL,
     imageModel: getSelectedImageToolModel(),
@@ -20068,7 +20068,7 @@ async function savePromptAttemptPreview(deckKey, attemptIndex) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         imageBase64: match[2],
-        format: normalizeOutputFormat(job?.format || match[1].split("/")[1] || "png"),
+        format: normalizeOutputFormat(job?.format || match[1].split("/")[1] || DEFAULT_OUTPUT_FORMAT),
         prompt: job?.prompt || "",
         ratio: job?.ratio || "",
         size: job?.size || "",
@@ -20805,7 +20805,7 @@ function getPortraitPlanSnapshot() {
     notes: refs.portraitNotesInput?.value.trim() || "",
     ratio: refs.portraitRatioInput?.value || DEFAULT_PORTRAIT_RATIO,
     size: normalizeSizeForSelectedRoute(refs.portraitRatioInput?.value || DEFAULT_PORTRAIT_RATIO, refs.portraitSizeInput?.value),
-    format: refs.portraitOutputFormatInput?.value || "png",
+    format: refs.portraitOutputFormatInput?.value || DEFAULT_OUTPUT_FORMAT,
     reasoningEffort: getSelectedReasoningEffort(refs.portraitReasoningEffortInput),
     quality: getSelectedImageQuality(refs.portraitQualityInput),
     analysis: state.portrait.referenceAnalysis.applied ? state.portrait.referenceAnalysis.result : null,

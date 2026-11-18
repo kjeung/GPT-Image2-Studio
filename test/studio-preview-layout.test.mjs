@@ -4171,9 +4171,11 @@ test("studio caches generated browser images for persistent preview and download
   assert.match(browserImageCache, /export function getThumbnailUrl\(item\) \{/);
   assert.match(browserImageCache, /export async function readBrowserCachedGalleryItems\(\{ restoreImageData = false \} = \{\}\) \{/);
   assert.match(app, /function upsertGalleryItem\(item\) \{[\s\S]*void cacheBrowserGalleryItem\(hydratedItem\);/);
-  assert.match(app, /function syncFilmstripMedia\([\s\S]*?const imageUrl = getThumbnailUrl\(item\);/);
-  assert.match(app, /function createRecentOutputItem\([\s\S]*?setViewportImageSource\(image, getThumbnailUrl\(item\)\);/);
-  assert.match(app, /function createGalleryTile\([\s\S]*?setViewportImageSource\(image, getThumbnailUrl\(item\)\);/);
+  // 胶片条、最近列表与画廊瓦片都必须走网格缩略图，点开灯箱才加载原图。
+  assert.match(app, /function syncFilmstripMedia\([\s\S]*?const imageUrl = getGridThumbnailUrl\(item\);/);
+  assert.match(app, /function createRecentOutputItem\([\s\S]*?setViewportImageSource\(image, getGridThumbnailUrl\(item\)\);/);
+  assert.match(app, /function createGalleryTile\([\s\S]*?setViewportImageSource\(image, getGridThumbnailUrl\(item\)\);/);
+  assert.match(browserImageCache, /export function getGridThumbnailUrl\(item = \{\}\) \{/);
   assert.match(app, /async function loadGallery\(\) \{[\s\S]*const browserCachedItems = await readBrowserCachedGalleryItems\(\{ restoreImageData: false \}\);[\s\S]*state\.gallery = sortGalleryItemsByCreatedAtDesc/);
   assert.match(app, /async function deleteGalleryItem\(item\) \{[\s\S]*await deleteBrowserCachedGalleryItem\(item\.filename\);/);
   assert.match(app, /async function clearHistory\(\) \{[\s\S]*await clearBrowserImageCache\(\);/);

@@ -37,7 +37,7 @@ test("config store returns empty public config before any save", async () => {
   assert.deepEqual(config.defaults, {
     size: "1024x1280",
     quality: "high",
-    format: "png",
+    format: "jpg",
     reasoningEffort: "high",
     generationStartDelayMs: 1000,
     generationConcurrency: 20,
@@ -162,7 +162,7 @@ test("config store falls back to the built-in defaults when the new environment 
   const publicConfig = await store.readPublicConfig();
 
   assert.equal(publicConfig.defaults.size, "1024x1280");
-  assert.equal(publicConfig.defaults.format, "png");
+  assert.equal(publicConfig.defaults.format, "jpg");
   assert.equal(publicConfig.includeImageToolModel, false);
   assert.equal(publicConfig.directImageStream, false);
 });

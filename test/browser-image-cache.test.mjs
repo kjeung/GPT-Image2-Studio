@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   getCardThumbnailUrl,
+  getGridThumbnailUrl,
   getThumbnailUrl,
   isServerImageProxyUrl,
   mergeServerAndBrowserGalleryItems,
@@ -103,4 +104,36 @@ test("thumbnail-focused views retain the server thumbnail over a cached full ima
   assert.equal(item.imageUrl, "data:image/png;base64,ZmFrZQ==");
   assert.equal(item.thumbnailUrl, "/api/gallery/thumbnail?path=2026-09%2F09-01%2Fdemo.png");
   assert.equal(getThumbnailUrl({ ...item, serverThumbnailUrl: item.thumbnailUrl }), item.thumbnailUrl);
+});
+
+test("gallery grid asks for a server thumbnail even when a full data URL is cached", () => {
+  // 新生成的图片保存时把整张原图的 dataURL 同时写进 imageUrl 与 thumbnailUrl，
+  // 于是画廊/胶片条直接渲染全尺寸 base64，首屏因此很慢。有 relativePath 时
+  // 网格必须改走缩略图接口，原图只在点开灯箱时才加载。
+  const item = {
+    filename: "fresh.png",
+    imageUrl: "data:image/png;base64,AAAA",
+    thumbnailUrl: "data:image/png;base64,AAAA",
+    relativePath: "2026-11/fresh.png",
+    createdAt: "2026-11-18T00:00:00.000Z",
+  };
+  const url = new URL(getGridThumbnailUrl(item), "http://localhost");
+  assert.equal(url.pathname, "/api/gallery/thumbnail");
+  assert.equal(url.searchParams.get("path"), "2026-11/fresh.png");
+});
+
+test("gallery grid keeps the original when no server-side file exists", () => {
+  // 没有 relativePath（例如远端资产、生成中预览）时不能编造缩略图地址。
+  assert.equal(getGridThumbnailUrl({ imageUrl: "https://example.com/a.png" }), "https://example.com/a.png");
+  assert.equal(getGridThumbnailUrl({ imageUrl: "blob:preview" }), "blob:preview");
+});
+
+test("cached gallery entries keep relativePath so the grid can find thumbnails", () => {
+  const normalized = normalizeBrowserCachedGalleryItem({
+    filename: "kept.png",
+    relativePath: "2026-11/kept.png",
+    imageUrl: "/output/2026-11/kept.png",
+    thumbnailUrl: "/api/gallery/thumbnail?path=2026-11%2Fkept.png",
+  });
+  assert.equal(normalized.relativePath, "2026-11/kept.png");
 });

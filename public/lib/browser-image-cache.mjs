@@ -106,6 +106,23 @@ export function getCardThumbnailUrl(item = {}) {
   return `/api/gallery/thumbnail?${query.toString()}`;
 }
 
+// 画廊网格与胶片条用这张缩略图，点开灯箱才加载原图。
+// 与 getCardThumbnailUrl 的差别：新生成的图片保存时会把整张原图的 dataURL 同时写进
+// imageUrl 与 thumbnailUrl，此时 thumbnailUrl === imageUrl 但不是 /output/ 开头的服务端
+// 地址，getCardThumbnailUrl 会原样返回那个全尺寸 base64，首屏就退化成加载原图。
+// 只要条目带着 relativePath（说明服务端确实有这个文件），网格就改走缩略图接口。
+export function getGridThumbnailUrl(item = {}) {
+  const relativePath = String(item?.relativePath || "").trim();
+  if (relativePath) {
+    const query = new URLSearchParams({
+      path: relativePath,
+      v: String(item.updatedAt || item.createdAt || ""),
+    });
+    return `/api/gallery/thumbnail?${query.toString()}`;
+  }
+  return getThumbnailUrl(item);
+}
+
 export function readBlobAsDataUrl(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -155,6 +172,9 @@ export function normalizeBrowserCachedGalleryItem(item = {}) {
   const normalized = {
     id: String(item.id || ""),
     filename,
+    // 网格缩略图靠 relativePath 拼 /api/gallery/thumbnail；丢掉它会让缓存恢复的条目
+    // 又退回全尺寸原图。
+    ...(String(item.relativePath || "").trim() ? { relativePath: String(item.relativePath).trim() } : {}),
     createdAt: String(item.createdAt || nowIso()),
     prompt: String(item.prompt || ""),
     baseUrl: String(item.baseUrl || ""),

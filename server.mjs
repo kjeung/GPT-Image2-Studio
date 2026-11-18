@@ -55,6 +55,7 @@ import {
   normalizeReferenceAnalysisLanguage,
 } from "./lib/reference-analysis-language.mjs";
 import {
+  DEFAULT_OUTPUT_FORMAT,
   normalizeOutputFormat,
   toApiOutputFormat,
   toOutputFormatExtension,
@@ -1754,7 +1755,7 @@ async function handlePromptPreviewSave(request, response) {
     });
   }
 
-  const format = normalizeOutputFormat(payload.format || "png");
+  const format = normalizeOutputFormat(payload.format || DEFAULT_OUTPUT_FORMAT);
   const previewImageRoute = normalizeImageRoute(payload.imageRoute);
   const previewQuality = normalizeGenerationImageQuality(payload.quality, {
     imageRoute: previewImageRoute,
@@ -4844,7 +4845,7 @@ async function handlePortraitGenerate(request, response) {
     const requestedSizeInput = String(formData.get("size") || plan.size || "").trim().toLowerCase();
     const { finalSize } = resolveGenerationSizeForRoute(ratioOption, requestedSizeInput, generationConfig.imageRoute);
     const finalQuality = normalizeGenerationImageQuality(formData.get("quality"), generationConfig, config.defaults?.quality);
-    const finalFormat = normalizeOutputFormat(String(formData.get("format") || plan.format || config.defaults?.format || "png"));
+    const finalFormat = normalizeOutputFormat(String(formData.get("format") || plan.format || config.defaults?.format || DEFAULT_OUTPUT_FORMAT));
     const reasoningEffort = normalizeGenerationReasoningEffort(
       formData.get("reasoningEffort"),
       generationConfig,
@@ -5228,7 +5229,7 @@ async function handleCreationGenerate(request, response) {
     const fallbackRatio = ratioOption.value;
     const fallbackSize = requestedSizeInput;
     const finalQuality = normalizeGenerationImageQuality(formData.get("quality"), generationConfig, config.defaults?.quality);
-    const finalFormat = normalizeOutputFormat(String(formData.get("format") || config.defaults?.format || "png"));
+    const finalFormat = normalizeOutputFormat(String(formData.get("format") || config.defaults?.format || DEFAULT_OUTPUT_FORMAT));
     const reasoningEffort = normalizeGenerationReasoningEffort(
       formData.get("reasoningEffort"),
       generationConfig,
@@ -5693,7 +5694,7 @@ async function handleCreationLogoBatchGenerate(request, response) {
     const requestedSizeInput = String(formData.get("size") || "").trim().toLowerCase();
     const { finalSize } = resolveGenerationSizeForRoute(ratioOption, requestedSizeInput, generationConfig.imageRoute);
     const finalQuality = normalizeGenerationImageQuality(formData.get("quality"), generationConfig, config.defaults?.quality);
-    const finalFormat = normalizeOutputFormat(String(formData.get("format") || config.defaults?.format || "png"));
+    const finalFormat = normalizeOutputFormat(String(formData.get("format") || config.defaults?.format || DEFAULT_OUTPUT_FORMAT));
     const reasoningEffort = normalizeGenerationReasoningEffort(
       formData.get("reasoningEffort"),
       generationConfig,
@@ -6084,7 +6085,7 @@ async function handlePortraitRepair(request, response) {
     const requestedSizeInput = String(formData.get("size") || setManifest.size || "").trim().toLowerCase();
     const { finalSize } = resolveGenerationSizeForRoute(ratioOption, requestedSizeInput, generationConfig.imageRoute);
     const finalQuality = normalizeGenerationImageQuality(formData.get("quality"), generationConfig, config.defaults?.quality);
-    const finalFormat = normalizeOutputFormat(String(formData.get("format") || setManifest.format || config.defaults?.format || "png"));
+    const finalFormat = normalizeOutputFormat(String(formData.get("format") || setManifest.format || config.defaults?.format || DEFAULT_OUTPUT_FORMAT));
     const reasoningEffort = normalizeGenerationReasoningEffort(
       formData.get("reasoningEffort"),
       generationConfig,
@@ -6424,7 +6425,7 @@ async function handleCreationRepair(request, response) {
     const fallbackRatio = String(formData.get("ratio") || "1:1");
     const fallbackSize = String(formData.get("size") || "").trim();
     const finalQuality = normalizeGenerationImageQuality(formData.get("quality"), generationConfig, config.defaults?.quality);
-    const finalFormat = normalizeOutputFormat(String(formData.get("format") || config.defaults?.format || "png"));
+    const finalFormat = normalizeOutputFormat(String(formData.get("format") || config.defaults?.format || DEFAULT_OUTPUT_FORMAT));
     const reasoningEffort = normalizeGenerationReasoningEffort(
       formData.get("reasoningEffort"),
       generationConfig,
@@ -7197,7 +7198,7 @@ async function handleGenerate(request, response) {
     const finalQuality = normalizeGenerationImageQuality(formData.get("quality"), generationConfig, config.defaults?.quality);
     let finalFormat = imageBackground === "transparent"
       ? "png"
-      : normalizeOutputFormat(requestedFormatInput || config.defaults?.format || "png");
+      : normalizeOutputFormat(requestedFormatInput || config.defaults?.format || DEFAULT_OUTPUT_FORMAT);
     let finalBase64 = "";
     const requestIp = await requestIpPromise;
     const generationStartedAt = new Date().toISOString();
