@@ -10,8 +10,49 @@
 2. **已证实**：登记闸门 `recordPromptFilmstripSessionResult` 要求 `state.promptFilmstripSessionJobIds.includes(jobId)`，而这个数组**只有** `registerPromptFilmstripSessionJob` 会写入（`public/app.js:7409-7414`，全仓 grep 无第二个写入点）。套图路径 `public/app.js:9594-9606` 建完 job 后只做 `state.jobs.unshift(...jobs); jobs.forEach(recordJobQueued);`，**没有**调用 `registerPromptFilmstripSessionJob` — 这正是单发路径 `public/app.js:21440` 有、套图路径没有的那一行。
 3. **已证实**：因此套图结果走的是「生成中占位可达、完成后消失」：生成期间 filmstrip 用 `state.jobs` 里的活动任务渲染占位（`public/app.js:7439-7445`），任务完成离开 `state.jobs` 后，画廊条目又被 `visibleFilenames` 过滤掉，于是 rail 里看不到任何东西；而 `upsertGalleryItem` 照旧把图写进画廊（`public/app.js:21251`、`20287`），所以「资产 → 瀑布画廊」能看到结果。
 4. **已证实**：测试覆盖了单发路径与「必须先登记再记录结果」的语义，**没有**覆盖套图路径 —— `test/studio-preview-layout.test.mjs:851` 断言的是 `startGeneration` 里的 `registerPromptFilmstripSessionJob(job)`，`test/prompt-set.test.mjs` 只关心套图的 prompt/params，两条都没断言 `startPromptSetGeneration` 会登记 job。
-5. **已证实（与症状无关）**：浏览器里的 `/api/gallery/metadata` 404 不是这个 bug 的原因。该路由存在（`server.mjs:7763-7765` → `handleGalleryMetadataRepair` `server.mjs:1684`），404 来自它对不存在文件的 `ENOENT` 分支（`server.mjs:1712-1717`），前端 `repairGalleryMetadataQueue` 逐条 `try/catch` 并只 `console.warn`（`public/app.js:2371-2389`），不会中断 `renderAll()`（同一批的 `loadGallery` 在 `public/app.js:20173` 已先 `renderAll()`，`:20174` 才异步补元数据）。
-6. **推测（未证实）**：报告人环境的前端构建标识 `app.js?v=20261103-current-suite-1-batch-pills-1` 与旧镜像的 `/api/gallery/metadata` 404 可能提示「前后端版本错配」，但这解释不了 filmstrip 缺图 —— 当前 HEAD 的 `startPromptSetGeneration` 同样缺登记调用（`753dc40` 引入套图时就没有，`git show 753dc40:public/app.js` 的对应段落同样只有 `unshift` + `recordJobQueued`）。
+5. **已证实（规格层）**：`openspec/specs/creation-mode/spec.md:1658-1680` 的「提示词模式胶片条使用页面会话展示窗口」是唯一直接约束这件事的规格，原文要求「当前页面提交的有效提示词生成任务 SHALL 只在其图片成功保存后加入该基线」。套图任务从未进入该基线，等于规格要求的第一句就没落地。
+6. **已证实（与症状无关）**：浏览器里的 `/api/gallery/metadata` 404 不是这个 bug 的原因。该路由存在（`server.mjs:7763-7765` → `handleGalleryMetadataRepair` `server.mjs:1684`），404 来自它对不存在文件的 `ENOENT` 分支（`server.mjs:1712-1717`），前端 `repairGalleryMetadataQueue` 逐条 `try/catch` 并只 `console.warn`（`public/app.js:2371-2389`），不会中断 `renderAll()`（同一批的 `loadGallery` 在 `public/app.js:20173` 已先 `renderAll()`，`:20174` 才异步补元数据）。
+6. **已排除「版本错配」**：报告人提供的部署实例 `http://aeboli-gpt-image2-studio:3600` 上，`GET /app.js?v=20261103-current-suite-1-batch-pills-1` 取到的文件 sha256 为 `1897512e…2942a0`，与本仓库 `public/app.js` **逐字节相同**（`diff` 退出码 0，1084187 B / 23893 行）。线上跑的就是 `2bd521a`，bug 活在当前代码里，不是旧镜像问题。该缺口自套图功能引入即存在（`753dc40` 时代同款写法）。
+
+## 实机验证（部署实例 `http://aeboli-gpt-image2-studio:3600`，2026-11-19）
+
+用**线上那一份** `app.js`（不是仓库副本）切出 `syncPromptFilmstripBaseline` ~ `getFilmstripItems` 的运行时代码，喂 31 张历史图做基线，跑两条路径：
+
+```
+基线条目数: 10
+登记过的 job: [ 'prompt-job-single' ]
+session 文件名: [ 'single-1.png' ]
+单发结果进 filmstrip: true
+套图结果进 filmstrip: false false
+```
+
+单发进得去、套图两个 job 的结果都进不去 —— 与报告人「单发正常、套图不显示」的边界逐字吻合，且**确定性复现**，不是时序 flaky。
+
+配套实测：
+
+- 线上 `registerPromptFilmstripSessionJob` 全部调用点仍只有 1 处（`:21440` 单发），套图 `:9605-9606` 无登记，与 HEAD 一致。
+- `POST /api/gallery/metadata`（非法文件名）返回 `400 {"message":"Invalid filename"}`，证明线上走的是 `handleGalleryMetadataRepair` 本体，控制台里的 404 只是该文件不存在时的 ENOENT 分支，与 filmstrip 无因果。
+- `GET /api/gallery` 返回 31 张，最新几条正是同一次套图的产物（`1345-产品生成-2.png` 等）：**生成、落盘、入库全部正常**，坏的只是「供给给 filmstrip 的那一步」。因此修复只需补登记，不必动生成/落盘链路。
+
+## 实测复现（不改源码，直接跑仓库里的真实函数）
+
+把 `public/app.js:7394-7436` 那一段 helper 原样抽出来在 node 里执行，模拟「套图 4 张全部完成」与「单发 1 张完成」两个对照组：
+
+```console
+$ node /tmp/probe-filmstrip.mjs
+套图（未登记）后 session 名单 = []
+单张（已登记）后 session 名单 = ["single-1.png"]
+```
+
+再把 `public/app.js:7438-7462` 的 `getFilmstripItems()` 原样抽出，喂同一份 `state.gallery`（4 张套图结果 + 10 张历史基线）：
+
+```console
+$ node /tmp/probe2.mjs
+A 套图完成后 filmstrip file: 条目 = [ 'file:hist-10.png', … 'file:hist-1.png' ]   # 4 张 set-*.jpg 一张都没有
+B 若登记后 filmstrip file: 条目 = [ 'file:set-4.jpg', 'file:set-3.jpg', 'file:set-2.jpg', 'file:set-1.jpg', … ]
+```
+
+A 就是当前代码的真实行为：**图已经在 `state.gallery` 里（所以画廊看得到），但 filmstrip 的可见集合里没有它**。B 是给套图 job 补上登记后的预期输出。两次运行都只读取源码、未改动任何文件。
 
 ## 证据细节
 
