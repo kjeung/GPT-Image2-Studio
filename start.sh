@@ -184,7 +184,7 @@ docker compose up -d --force-recreate
 # 不核对就只是「我以为部署好了」。这一层挡住的是「构建成功但镜像没换」
 # 「容器没被替换」这类静默失败 —— 它们不会报错，只会安静地跑旧代码。
 if [ "$GIT_COMMIT" != "unknown" ]; then
-  running_revision=$(docker inspect gpt-image2-studio \
+  running_revision=$(docker inspect "$STUDIO_CONTAINER_NAME_VALUE" \
     --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null || echo "")
   if [ -z "$running_revision" ] || [ "$running_revision" = "<no value>" ]; then
     warn "容器镜像没有 revision 标签，无法核对运行版本（可能是旧镜像）。"
@@ -201,8 +201,8 @@ fi
 # ---- 静态资源自检 ----------------------------------------------------------
 # 再硬核一层：直接从容器里读 app.js 的关键指纹。版本标签可能因为各种原因
 # 与实际文件不符，读文件不会骗人。
-if docker exec gpt-image2-studio test -f /app/public/app.js 2>/dev/null; then
-  if docker exec gpt-image2-studio grep -q "getGridThumbnailUrl" /app/public/app.js 2>/dev/null; then
+if docker exec "$STUDIO_CONTAINER_NAME_VALUE" test -f /app/public/app.js 2>/dev/null; then
+  if docker exec "$STUDIO_CONTAINER_NAME_VALUE" grep -q "getGridThumbnailUrl" /app/public/app.js 2>/dev/null; then
     info "静态资源自检通过。"
   else
     warn "容器内 app.js 缺少预期的新代码（getGridThumbnailUrl）。"

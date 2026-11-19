@@ -118,3 +118,44 @@ test("compose 不把数据目录写成 docker volume", async () => {
   );
   assert.match(compose, /\$\{DATA_DIR:-\.\/data\}:\/data/, "数据目录应为 ${DATA_DIR:-./data} 绑定挂载");
 });
+
+test("STUDIO_CONTAINER_NAME 必须真正决定容器名，而不是被 compose 硬编码覆盖", async () => {
+  // 事故：在 .env 里设 STUDIO_CONTAINER_NAME=aeboli-gpt-image2-studio 后毫无效果，
+  // 因为 compose.yml 里 container_name 写死了 gpt-image2-studio。用户配了变量却
+  // 不生效，比没有这个变量更糟 —— 会让人误以为已经切换过去了。
+  const compose = await read("../compose.yml");
+
+  assert.match(
+    compose,
+    /container_name:\s*\$\{STUDIO_CONTAINER_NAME:-/,
+    "container_name 必须读 STUDIO_CONTAINER_NAME（带默认值），不能写死",
+  );
+  assert.doesNotMatch(
+    compose,
+    /^\s*container_name:\s*gpt-image2-studio\s*$/m,
+    "container_name 不得硬编码为固定名字",
+  );
+  // 项目名同理：写死的话 两套部署仍然无法互相替换。
+  assert.match(
+    compose,
+    /^name:\s*\$\{STUDIO_CONTAINER_NAME:-/m,
+    "顶层 name 也应跟随 STUDIO_CONTAINER_NAME，否则项目名与容器名会分叉",
+  );
+});
+
+test("start.sh 的版本核对与自检必须使用配置的容器名", async () => {
+  // 事故：start.sh 里 docker inspect / docker exec 全部硬编码 gpt-image2-studio，
+  // 于是即便容器真叫别的名字，校验也在查一个不相干的容器 —— 校验形同虚设。
+  const script = await read("../start.sh");
+
+  assert.doesNotMatch(
+    script,
+    /docker\s+inspect\s+gpt-image2-studio/,
+    "docker inspect 不得硬编码容器名，必须用 STUDIO_CONTAINER_NAME",
+  );
+  assert.doesNotMatch(
+    script,
+    /docker\s+exec\s+gpt-image2-studio/,
+    "docker exec 不得硬编码容器名，必须用 STUDIO_CONTAINER_NAME",
+  );
+});

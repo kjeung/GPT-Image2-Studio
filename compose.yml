@@ -17,7 +17,10 @@
 # `traefik_net`，可用 .env 里的 TRAEFIK_NET 覆盖名字；本仓库**不创建**它。
 #   docker network create traefik_net  # 若尚不存在
 
-name: gpt-image2-studio
+# 项目名跟随容器名。两者必须一致，否则会出现「容器名改了、项目名没改」的分叉：
+# compose 按项目名管理容器，项目名不同就意味着另一套部署，两边互相看不见，
+# down/up 也不会作用到对方。
+name: ${STUDIO_CONTAINER_NAME:-gpt-image2-studio}
 
 services:
   studio:
@@ -28,7 +31,10 @@ services:
       dockerfile: Dockerfile
     # 镜像 tag 用仓库版本号；STUDIO_TAG 可在 .env 里覆盖。
     image: gpt-image2-studio:${STUDIO_TAG:-0.3.001}
-    container_name: gpt-image2-studio
+    # 容器名必须可配置：它同时是 traefik_net 内的 DNS 别名与 start.sh 的核对目标。
+    # 写死会导致 .env 里的 STUDIO_CONTAINER_NAME 形同虚设 —— 用户以为切到了新名字，
+    # 实际仍在操作另一个容器。
+    container_name: ${STUDIO_CONTAINER_NAME:-gpt-image2-studio}
     restart: unless-stopped
     # 回收僵尸进程并向 node 转发信号（server.mjs 自身不装信号处理器）。
     init: true
