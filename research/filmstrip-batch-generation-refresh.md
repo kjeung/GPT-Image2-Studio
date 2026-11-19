@@ -12,7 +12,7 @@
 4. **已证实**：测试覆盖了单发路径与「必须先登记再记录结果」的语义，**没有**覆盖套图路径 —— `test/studio-preview-layout.test.mjs:851` 断言的是 `startGeneration` 里的 `registerPromptFilmstripSessionJob(job)`，`test/prompt-set.test.mjs` 只关心套图的 prompt/params，两条都没断言 `startPromptSetGeneration` 会登记 job。
 5. **已证实（规格层）**：`openspec/specs/creation-mode/spec.md:1658-1680` 的「提示词模式胶片条使用页面会话展示窗口」是唯一直接约束这件事的规格，原文要求「当前页面提交的有效提示词生成任务 SHALL 只在其图片成功保存后加入该基线」。套图任务从未进入该基线，等于规格要求的第一句就没落地。
 6. **已证实（与症状无关）**：浏览器里的 `/api/gallery/metadata` 404 不是这个 bug 的原因。该路由存在（`server.mjs:7763-7765` → `handleGalleryMetadataRepair` `server.mjs:1684`），404 来自它对不存在文件的 `ENOENT` 分支（`server.mjs:1712-1717`），前端 `repairGalleryMetadataQueue` 逐条 `try/catch` 并只 `console.warn`（`public/app.js:2371-2389`），不会中断 `renderAll()`（同一批的 `loadGallery` 在 `public/app.js:20173` 已先 `renderAll()`，`:20174` 才异步补元数据）。
-6. **已排除「版本错配」**：报告人提供的部署实例 `http://aeboli-gpt-image2-studio:3600` 上，`GET /app.js?v=20261103-current-suite-1-batch-pills-1` 取到的文件 sha256 为 `1897512e…2942a0`，与本仓库 `public/app.js` **逐字节相同**（`diff` 退出码 0，1084187 B / 23893 行）。线上跑的就是 `2bd521a`，bug 活在当前代码里，不是旧镜像问题。该缺口自套图功能引入即存在（`753dc40` 时代同款写法）。
+7. **已排除「版本错配」**：报告人提供的部署实例 `http://aeboli-gpt-image2-studio:3600` 上，`GET /app.js?v=20261103-current-suite-1-batch-pills-1` 取到的文件 sha256 为 `1897512e…2942a0`，与本仓库 `public/app.js` **逐字节相同**（`diff` 退出码 0，1084187 B / 23893 行）。线上跑的就是 `2bd521a`，bug 活在当前代码里，不是旧镜像问题。该缺口自套图功能引入即存在（`753dc40` 时代同款写法）。
 
 ## 实机验证（部署实例 `http://aeboli-gpt-image2-studio:3600`，2026-11-19）
 
@@ -97,16 +97,39 @@ function recordPromptFilmstripSessionResult(job, item) {
 
 ### 测试空档
 
-- `test/studio-preview-layout.test.mjs:851`：`assert.match(startGenerationBody, /const job = createJob\(\);\s*registerPromptFilmstripSessionJob\(job\); .../)` —— 只锁单发。
-- `test/studio-preview-layout.test.mjs:663-711`：`prompt filmstrip registers only current-session saved task results` —— 验证「未登记 job 的结果被丢弃」，等于把套图的失败路径写成了期望行为。
-- `test/prompt-set.test.mjs:1`（套图用例）：只断言 `createJob` 收到的 prompt/params/元数据。
+- `test/studio-preview-layout.test.mjs:834-859`（`studio prompt filmstrip keeps its session boundary across direct and polled completion`）：只把**单发**路径的接线钉成正则 —— `:851` 断言 `startGeneration` 里的 `const job = createJob(); registerPromptFilmstripSessionJob(job); state.jobs.unshift(job);`。套图的 `startPromptSetGeneration` 不在任何断言里。
+- `test/studio-preview-layout.test.mjs:663-711`（`prompt filmstrip registers only current-session saved task results`）：验证「未登记 job 的结果被丢弃」（`:702-704`）。这条用例本身是对的，但它把套图的失败路径写成了期望行为 —— 没有任何用例追问「套图的 job 为什么没被登记」。
+- `test/prompt-set.test.mjs`（8 个用例，`:14`/`:30`/`:42`/`:50`/`:101`/`:226`/`:253`/`:268`）：全部只断言 `createJob` 收到的 prompt/params/元数据与标题分析，**没有一条**碰 filmstrip 或 session 登记。
+- 空档实测：把这三个相关测试文件整体跑一遍，**212 例全绿**（`node --test test/studio-preview-layout.test.mjs test/prompt-set.test.mjs test/prompt-attempt-deck-integration.test.mjs` → `pass 212 / fail 0`）。即：bug 在仓库里存在，而现有测试一条都不红 —— 这正是空档的直接证据。
 - 结论：缺一条「`startPromptSetGeneration` 建立的每个 job 都进入 `promptFilmstripSessionJobIds`，且其完成结果进入 filmstrip」的用例。
 
 ### 规格依据
 
-- `openspec/specs/gallery-history-browsing/spec.md:67-71`：filmstrip 属于「thumbnail-focused surface」，历史图必须在其中渲染（要求缩略图 URL，不代表可以缺失条目）。
-- `openspec/specs/generation-loading/spec.md`（Unified generation loading indicator / Loading animation fills its host image slot）：胶片条与逐项占位的加载表现被点名要求一致；套图完成即从占位切换为结果，缺结果等于加载壳消失后没有接手的内容。
-- `openspec/specs/image-soft-reveal/spec.md:6-14`：主预览的显现要求只谈「收到新图片地址」，未覆盖 filmstrip 的条目供给 —— 供给缺失在显现之前就发生了。
+**最直接的一条**（此前漏引）：
+
+- `openspec/specs/creation-mode/spec.md:1658-1680`「提示词模式胶片条使用页面会话展示窗口」原文（`:1660`）：
+  > 提示词模式胶片条首次成功载入 SHALL 只展示最近 10 张提示词模式历史图片…**当前页面提交的有效提示词生成任务 SHALL 只在其图片成功保存后加入该基线**；系统 MUST NOT 为了填满窗口而加入基线之外、更早的历史图片。…基线与当前页面成功结果 SHALL 按创建时间倒序组成最多 50 张历史缩略图的滚动窗口。
+  配套场景 `:1668-1673`「当前页面继续生成」明确要求「5 个提示词生成任务均成功保存图片 → 胶片条展示这 5 张当前会话结果和原有 10 张基线图片，共 15 张」。套图批量任务属于「当前页面提交的有效提示词生成任务」，但它的结果一张都没进这个窗口 —— **规格的第一句就违规**。
+
+其余相关：
+
+- `openspec/specs/gallery-history-browsing/spec.md:64-70`：filmstrip 属于「thumbnail-focused surface」，历史图必须能在其中渲染（该条只约束用 `thumbnailUrl` 而非 `imageUrl`，不构成缺失条目的豁免）。
+- `openspec/specs/generation-loading/spec.md:178-192`「Generation completion and cleanup」：`- **WHEN** 生成任务返回完整图片 / - **THEN** …加载组件从预览容器移除并显示图片`（`:184-186`）。对 filmstrip 而言，占位被移除后没有结果接手，等于该要求的落空形态。
+- `openspec/specs/image-soft-reveal/spec.md:6-15`：主预览的显现要求只谈「收到新图片地址」，未覆盖 filmstrip 的条目供给 —— 供给缺失发生在显现之前。
+
+## 附：完整调用链（入口 → 终态 → 视图）
+
+| 环节 | 位置 |
+| --- | --- |
+| 按钮绑定 | `public/app.js:22888-22890`（`#generatePromptSetButton` → `startPromptSetGeneration()`） |
+| 批量提交 | `public/app.js:9597-9606`（`templates.map(createJob)` → `state.jobs.unshift(...jobs)` → `jobs.forEach(recordJobQueued)`，**无 session 登记**） |
+| 收尾渲染 | `public/app.js:9609-9612`（关弹窗 → `setActiveView("studio")` → `renderAll()` → `scheduleGenerationQueue()`） |
+| 调度 | `public/app.js:21099-21113` → `runGeneration` `:21115` |
+| 流式成功回调 | `GENERATION_STREAM_EVENTS.SAVED` `public/app.js:21219`；在 `:21251` `upsertGalleryItem` + `:21252` `recordPromptFilmstripSessionResult`（被闸门拦下） |
+| 轮询成功回调 | `applyGenerationTaskSnapshots` 的 completed 分支 `public/app.js:20254`；`:20287` `upsertGalleryItem` + `:20288` `recordPromptFilmstripSessionResult`（同样被拦下） |
+| 渲染 | `renderAll` `:8563` → `renderActiveView` `:8547` → `renderStudio` `:8518` → `renderFilmstrip` `:7910` → `getFilmstripItems` `:7438` → `renderFilmstripEntries` `:7745` |
+
+filmstrip 的取数是**从 `state.gallery` 现算**的（无独立 store、无自定义事件；全仓 `dispatchEvent` 只有 2 处且与生图无关，见 `:9282`/`:9286`），所以「不刷新」不是渲染问题：`renderAll()` 每次都跑到了，是 `getFilmstripItems` 的过滤集合里没有这些文件名。这也解释了为什么画廊（直接读 `state.gallery`）看得到而 filmstrip 看不到。
 
 ## 可能的位置（一句话）
 
