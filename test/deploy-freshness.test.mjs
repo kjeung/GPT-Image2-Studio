@@ -70,3 +70,51 @@ test("start.sh 重新部署时会替换既有容器，而不是只重启它", as
     "start.sh 必须用 --force-recreate 替换容器，否则新镜像不会生效",
   );
 });
+
+test("start.sh 会真正执行 chown，而不是只在警告文本里提一句", async () => {
+  // 事故：数据目录从 docker volume 改成宿主绑定目录后，./data 由 docker 以 root
+  // 创建，而容器以 uid 1000 运行，应用启动时 mkdir /data/output 报 EACCES，
+  // 容器进入 Restarting 循环。原来的实现只在 warn 文本里写着
+  // "sudo chown -R 1000:1000 data"，并不真正执行，等于放行了崩溃。
+  //
+  // 因此这个断言必须先剔除所有 warn/echo 行，再看剩下的代码里有没有 chown。
+  // volume 时代不会出这个问题：docker 会把 volume 属主设成镜像里 /data 的属主。
+  const script = await read("../start.sh");
+
+  const executableLines = script
+    .split("\n")
+    .filter((line) => !/^\s*(warn|info|echo|#)/.test(line))
+    .join("\n");
+
+  assert.match(
+    executableLines,
+    /chown\s+(-R\s+)?[\"']?1000:1000/,
+    "start.sh 必须真正执行 chown，只在 warn 里写提示不算修复",
+  );
+});
+
+test("start.sh 修不了属主时会中止，而不是启动一个注定崩溃的容器", async () => {
+  const script = await read("../start.sh");
+  const executableLines = script
+    .split("\n")
+    .filter((line) => !/^\s*(warn|info|echo|#)/.test(line))
+    .join("\n");
+
+  // 非 root 且 chown 失败时必须 fail，不能继续 up 出一个 EACCES 循环。
+  assert.match(
+    executableLines,
+    /fail\s+[\s\S]{0,200}(属主|chown|permission|EACCES)/i,
+    "属主无法修正时必须中止启动",
+  );
+});
+
+test("compose 不把数据目录写成 docker volume", async () => {
+  // 用户明确要求持久化一律用宿主目录绑定，不用 docker volume。
+  const compose = await read("../compose.yml");
+  assert.doesNotMatch(
+    compose,
+    /^\s*-\s*studio-data:\/data/m,
+    "数据目录不得回到 docker volume 形式",
+  );
+  assert.match(compose, /\$\{DATA_DIR:-\.\/data\}:\/data/, "数据目录应为 ${DATA_DIR:-./data} 绑定挂载");
+});

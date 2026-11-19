@@ -127,15 +127,29 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
 fi
 
 # ---- 数据目录 --------------------------------------------------------------
-# 容器以 node(1000) 运行，宿主目录若由 root 创建，应用写不进去。
+# 容器以 node(1000) 运行。数据目录用宿主绑定（不用 docker volume），就必须自己
+# 保证属主：docker volume 会自动继承镜像里 /data 的属主（node），而宿主目录不会——
+# 目录由 root 创建时，应用启动阶段 mkdir /data/output 直接 EACCES 崩溃，容器进入
+# Restarting 循环。这就是"重建了但页面还是旧的"最常见的形态之一，所以这里必须
+# 真正修好，而不是打一句警告就往下走。
 DATA_DIR_VALUE=$(get_env DATA_DIR)
 DATA_DIR_VALUE="${DATA_DIR_VALUE:-./data}"
 info "数据目录：$DATA_DIR_VALUE"
 mkdir -p "$DATA_DIR_VALUE"
-# 只在当前属主不是 1000 时提示，不强行 chown（可能需要 sudo，且可能改错属主）。
-if [ "$(stat -c '%u' "$DATA_DIR_VALUE" 2>/dev/null || echo '')" != "1000" ]; then
-  warn "数据目录属主不是 1000:1000。若容器内写盘失败，执行："
-  warn "  sudo chown -R 1000:1000 $DATA_DIR_VALUE"
+
+DATA_OWNER_UID=$(stat -c '%u' "$DATA_DIR_VALUE" 2>/dev/null || echo "")
+if [ "$DATA_OWNER_UID" != "1000" ]; then
+  info "修正数据目录属主为 1000:1000 ..."
+  if chown -R 1000:1000 "$DATA_DIR_VALUE" 2>/dev/null; then
+    info "属主已修正。"
+  elif command -v sudo >/dev/null 2>&1 && sudo -n chown -R 1000:1000 "$DATA_DIR_VALUE" 2>/dev/null; then
+    info "已通过 sudo 修正属主。"
+  else
+    fail "无法把 $DATA_DIR_VALUE 的属主改成 1000:1000（当前 $(stat -c '%u:%g' "$DATA_DIR_VALUE" 2>/dev/null)）。
+容器以 uid 1000 运行，属主不对会导致启动时 mkdir /data/output 报 EACCES 并反复重启。
+请手动执行后重试：
+  sudo chown -R 1000:1000 $DATA_DIR_VALUE"
+  fi
 fi
 
 # ---- 网络检查（不创建，只提示）---------------------------------------------
