@@ -9603,6 +9603,7 @@ async function startPromptSetGeneration(promptSetId = "") {
       promptSetName: promptSet.name,
     }));
     state.jobs.unshift(...jobs);
+    jobs.forEach(registerPromptFilmstripSessionJob);
     jobs.forEach(recordJobQueued);
     state.selectedPreviewKey = makeJobPreviewKey(jobs[0].id);
     setPromptSetFeedback(`「${promptSet.name}」已提交，共 ${jobs.length} 张图片。`, "success");
@@ -19989,6 +19990,7 @@ async function retryFailedJob(jobId) {
     requestRetryCount: 0,
   };
   state.jobs.unshift(retryJob);
+  registerPromptFilmstripSessionJob(retryJob);
   state.selectedPreviewKey = makeJobPreviewKey(retryJob.id);
   recordJobQueued(retryJob);
   renderAll();

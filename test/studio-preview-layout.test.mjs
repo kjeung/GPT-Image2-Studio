@@ -6375,3 +6375,133 @@ test("creation settings remove duplicate recognition and keep four toggles in tw
   assert.match(readCssRule(styles, ".creation-reference-grid"), /align-items:\s*start/);
   assert.match(readCssRule(styles, ".creation-reference-grid > .reference-add-card"), /align-self:\s*start;[\s\S]*aspect-ratio:\s*1 \/ 1/);
 });
+
+
+// 用户可见行为：套图（一次建 N 个 job）的成品必须出现在胶片条里。
+// 跑的是真实的 startPromptSetGeneration + 真实的 filmstrip 收录逻辑，
+// 只把 createJob / 渲染等外围打桩，避免自证。
+test("prompt set generation registers every job with the filmstrip session", async () => {
+  const { runInNewContext } = await import("node:vm");
+  const app = await readFile(appPath, "utf8");
+
+  const slice = (anchor) => {
+    const start = app.indexOf(anchor);
+    assert.ok(start !== -1, `${anchor} must exist`);
+    const rest = app.slice(start + anchor.length);
+    const next = rest.search(/\n(async function |function |const )/);
+    return next === -1 ? app.slice(start) : app.slice(start, start + anchor.length + next);
+  };
+
+  const startSetFn = slice("async function startPromptSetGeneration(");
+  const helperStart = app.indexOf("function syncPromptFilmstripBaseline()");
+  const helperEnd = app.indexOf("function getFilmstripPlaceholderState", helperStart);
+  const filmstripHelpers = app.slice(helperStart, helperEnd).trimEnd();
+
+  let jobSeq = 0;
+  const state = {
+    promptSets: [],
+    promptTemplates: [],
+    promptSetGenerating: false,
+    jobs: [],
+    gallery: [],
+    promptAttemptDecks: {},
+    promptFilmstripBaselineCaptured: true,
+    promptFilmstripBaselineFilenames: [],
+    promptFilmstripSessionJobIds: [],
+    promptFilmstripSessionFilenames: [],
+  };
+  const refs = {
+    productTitleInput: { value: "产品标题" },
+    promptSetNameInput: { value: "套图 A" },
+  };
+
+  const context = {
+    state,
+    refs,
+    createJob: () => ({ id: `set-job-${++jobSeq}` }),
+    recordJobQueued: () => {},
+    setPromptSetFeedback: () => {},
+    setPromptTemplatePopoverOpen: () => {},
+    setActiveView: () => {},
+    renderAll: () => {},
+    renderPromptSets: () => {},
+    scheduleGenerationQueue: () => {},
+    clearError: () => {},
+    showError: () => {},
+    getSelectedPromptSet: () => ({ id: "set-a", name: "套图 A", templateIds: ["t1", "t2", "t3"] }),
+    getPromptSetDraftTemplates: () => [
+      { id: "t1", name: "主图", prompt: "main", analyzeTitle: false, params: {} },
+      { id: "t2", name: "卖点", prompt: "benefit", analyzeTitle: false, params: {} },
+      { id: "t3", name: "场景", prompt: "usage", analyzeTitle: false, params: {} },
+    ],
+    resolvePromptSetTemplates: (set, templates) => templates,
+    buildTitleAwarePrompt: (prompt) => prompt,
+    makeJobPreviewKey: (id) => `job:${id}`,
+    getPromptGenerationGalleryItems: (items) => items,
+    PROMPT_FILMSTRIP_INITIAL_HISTORY_LIMIT: 10,
+  };
+
+  runInNewContext(
+    `${filmstripHelpers}\n${startSetFn}\n;globalThis.__run = startPromptSetGeneration;`,
+    context,
+  );
+  await context.__run();
+
+  // 套图一次建 3 个 job —— 这三个 job 都必须被 filmstrip 会话登记，
+  // 否则它们的结果会被 recordPromptFilmstripSessionResult 的闸门丢掉。
+  assert.equal(state.jobs.length, 3);
+  assert.deepEqual(state.promptFilmstripSessionJobIds, ["set-job-1", "set-job-2", "set-job-3"]);
+});
+
+// 用户可见行为：单发生成失败后点「重试」，重试出来的图片同样要出现在胶片条里。
+// retryFailedJob 用新 id 重建 job，若新 id 没进会话集合，重试结果会被闸门丢掉。
+test("retrying a failed generation registers the rebuilt job with the filmstrip session", async () => {
+  const { runInNewContext } = await import("node:vm");
+  const app = await readFile(appPath, "utf8");
+
+  const start = app.indexOf("async function retryFailedJob(");
+  assert.ok(start !== -1, "retryFailedJob must exist");
+  const rest = app.slice(start + "async function retryFailedJob(".length);
+  const next = rest.search(/\n(async function |function |const )/);
+  const retryFn = next === -1 ? app.slice(start) : app.slice(start, start + "async function retryFailedJob(".length + next);
+
+  const helperStart = app.indexOf("function syncPromptFilmstripBaseline()");
+  const helperEnd = app.indexOf("function getFilmstripPlaceholderState", helperStart);
+  const filmstripHelpers = app.slice(helperStart, helperEnd).trimEnd();
+
+  const failedJob = { id: "job-failed", status: "error", previewUrl: "blob:failed" };
+  const state = {
+    jobs: [failedJob],
+    selectedPreviewKey: "",
+    promptAttemptDecks: {},
+    promptFilmstripBaselineCaptured: true,
+    promptFilmstripBaselineFilenames: [],
+    promptFilmstripSessionJobIds: [],
+    promptFilmstripSessionFilenames: [],
+  };
+  const context = {
+    state,
+    normalizeGenerationTaskStatus: (status) => status,
+    nowIso: () => "2026-11-19T00:00:00.000Z",
+    buildGenerationTaskStatusText: () => "queued",
+    removeJob: (id) => {
+      state.jobs = state.jobs.filter((job) => job.id !== id);
+    },
+    makeJobPreviewKey: (id) => `job:${id}`,
+    recordJobQueued: () => {},
+    renderAll: () => {},
+    scheduleGenerationQueue: () => {},
+  };
+
+  runInNewContext(
+    `${filmstripHelpers}\n${retryFn}\n;globalThis.__retry = retryFailedJob;`,
+    context,
+  );
+  await context.__retry("job-failed");
+
+  assert.equal(state.jobs.length, 1);
+  const rebuiltId = state.jobs[0].id;
+  assert.notEqual(rebuiltId, "job-failed");
+  // 重建出的新 job 必须被登记，否则它的成品进不了胶片条。
+  assert.deepEqual(state.promptFilmstripSessionJobIds, [rebuiltId]);
+});

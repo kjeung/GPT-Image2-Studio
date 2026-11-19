@@ -141,6 +141,10 @@ test("mixed prompt set applies title analysis per template on every submission",
     makeJobPreviewKey: () => "preview",
     ensureReferenceGenerationFilesReady: async () => {},
   };
+  // The generation path registers each job with the filmstrip session (issue #17);
+  // the harness runs the real function, so it needs that collaborator stubbed too.
+  context.state.promptFilmstripSessionJobIds = [];
+  context.registerPromptFilmstripSessionJob = () => {};
   for (const name of ["clearError", "setPromptSetFeedback", "showError", "renderPromptSets", "recordJobQueued", "setPromptTemplatePopoverOpen", "setActiveView", "renderAll", "scheduleGenerationQueue"]) context[name] = () => {};
   runInNewContext(fn, context);
   for (const setId of ["set", ""]) {
