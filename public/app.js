@@ -129,8 +129,8 @@ import { DEFAULT_GENERATION_CONCURRENCY, DEFAULT_GENERATION_START_DELAY_MS, DEFA
 import { GENERATION_START_DELAY_FIELD, normalizeGenerationStartDelayMs } from "/lib/generation-start-delay.mjs?v=20260829-generation-schedule-1";
 import { GENERATION_CONCURRENCY_FIELD, normalizeGenerationConcurrency } from "/lib/generation-concurrency.mjs?v=20260829-generation-schedule-1";
 import { prepareClipboardImageFiles } from "/lib/clipboard-image-files.mjs?v=20261106-stable-paste-1";
-import { decodePromptKitSharePayload, encodePromptKitSharePayload, formatPromptKitShareCode, mergePromptKitShareData, movePromptTemplateInList, parsePromptKitShareCode, removePromptTemplatesFromLibrary } from "/lib/prompt-kit-share.mjs?v=20261106-prompt-kit-share-1";
-import { areAllItemsSelected, buildTitleAwarePrompt, canApplyItemConfig, isRetryableStudioJob, normalizePromptSet, normalizePromptTemplateParams, removePromptTemplateFromSets, resolvePromptSetTemplates, saveGalleryItemsIndividually, selectGalleryItemsByFilenames, toggleSelectionValue } from "/lib/studio-enhancements.mjs?v=20261106-studio-enhancements-1";
+import { decodePromptKitSharePayload, encodePromptKitSharePayload, formatPromptKitShareCode, mergePromptKitShareData, movePromptTemplateInList, parsePromptKitShareCode, removePromptTemplatesFromLibrary } from "/lib/prompt-kit-share.mjs?v=20261119-title-optional-1";
+import { areAllItemsSelected, buildTitleAwarePrompt, canApplyItemConfig, isRetryableStudioJob, normalizePromptSet, normalizePromptTemplateParams, removePromptTemplateFromSets, resolvePromptSetTemplates, saveGalleryItemsIndividually, selectGalleryItemsByFilenames, toggleSelectionValue } from "/lib/studio-enhancements.mjs?v=20261119-title-optional-1";
 const SURPRISE_PROMPTS = [
   {
     name: "证件照",
@@ -191,13 +191,10 @@ const DEFAULT_PROMPT_ENHANCE_TEXT = "Quality only; original prompt and reference
 }
 function buildPromptModePrompt() {
   const rawPrompt = refs.promptInput.value.trim();
-  // 勾了「结合标题分析」才把产品标题带进 prompt；没勾时行为与上游完全一致。
-  // 标题为空时不抛错（buildTitleAwarePrompt 会），退回原始 prompt，由套图入口
-  // 单独给出「请先填写产品标题」的提示，不让一次漏填把普通生成也堵死。
+  // 产品标题是可选输入（#18）：填了就并入 prompt，没填就原样返回。
+  // 没有开关、不设必填，也不拦截生成——标题为空属于正常情况，不是错误。
   const title = String(refs.productTitleInput?.value || "").trim();
-  const prompt = state.promptAnalyzeTitle && title
-    ? buildTitleAwarePrompt(rawPrompt, title, true)
-    : rawPrompt;
+  const prompt = title ? buildTitleAwarePrompt(rawPrompt, title) : rawPrompt;
   return `${prompt}${buildPromptEnhancementSuffix()}`;
 } function syncPromptEnhanceMode() { refs.promptEnhanceToggle.classList.toggle("is-active", state.promptEnhanceEnabled); refs.promptEnhanceToggle.setAttribute("aria-checked", String(state.promptEnhanceEnabled)); refs.promptEnhanceToggle.querySelector("small").textContent = getUiLanguageText(state.promptEnhanceEnabled ? "promptEnhanceOn" : "promptEnhanceOff"); refs.promptEnhanceField.classList.toggle("hidden", !state.promptEnhanceEnabled); scheduleStudioPromptFillSync(); } function togglePromptEnhanceMode() { state.promptEnhanceEnabled = !state.promptEnhanceEnabled; syncPromptEnhanceMode(); if (state.promptEnhanceEnabled) { refs.promptEnhanceInput.focus(); } }
 const PROMPT_TEMPLATE_STORAGE_KEY = "image-studio-prompt-templates-v2";
@@ -1062,7 +1059,6 @@ const state = {
   selectedPromptSetId: "",
   promptSetDraftTemplateIds: new Set(),
   promptSetGenerating: false,
-  promptAnalyzeTitle: false,
   promptTemplateBatchMode: false,
   promptTemplateCheckedIds: [],
   selectedPreviewKey: "",
@@ -1616,7 +1612,6 @@ const refs = {
   promptTemplateNameInput: document.querySelector("#promptTemplateNameInput"),
   promptTemplatePopover: document.querySelector("#promptTemplatePopover"),
   promptTemplateTextInput: document.querySelector("#promptTemplateTextInput"),
-  promptTemplateAnalyzeTitleToggle: document.querySelector("#promptTemplateAnalyzeTitleToggle"),
   promptTemplateSaveParamsToggle: document.querySelector("#promptTemplateSaveParamsToggle"),
   promptTemplateBatchToggleButton: document.querySelector("#promptTemplateBatchToggleButton"),
   promptTemplateBatchSelectAllButton: document.querySelector("#promptTemplateBatchSelectAllButton"),
@@ -8662,10 +8657,9 @@ function normalizePromptTemplate(template, index = 0) {
     id: String(template?.id || createPromptTemplateId()),
     name: getPromptAgentTemplateDisplayName(template, parsedPromptJson, index),
     prompt,
-    // 分享码会带上每个模板的生成参数与「结合标题分析」开关；只保留三个字段会让
-    // 导入方看到模板但丢了参数与开关，所以在这里一并归一化保存。
+    // 分享码会带上每个模板的生成参数；只保留三个字段会让导入方看到模板但丢了参数，
+    // 所以在这里一并归一化保存。（标题分析开关已在 #18 移除，存量字段读入即丢弃。）
     params: normalizePromptTemplateParams(template?.params),
-    analyzeTitle: template?.analyzeTitle === true,
   };
 }
 
@@ -9074,11 +9068,8 @@ function selectPromptTemplate(templateId) {
   state.selectedPromptTemplateId = template?.id || "";
   refs.promptTemplateNameInput.value = template?.name || "";
   refs.promptTemplateTextInput.value = template?.prompt || "";
-  // 编辑已有模板时把它的两个开关回填，否则用户看不到该模板是否带参数/标题分析，
-  // 保存时会把已存的 params 与 analyzeTitle 静默清掉。
-  if (refs.promptTemplateAnalyzeTitleToggle) {
-    refs.promptTemplateAnalyzeTitleToggle.checked = template?.analyzeTitle === true;
-  }
+  // 编辑已有模板时把「连同参数保存」回填，否则用户看不到该模板是否带参数，
+  // 保存时会把已存的 params 静默清掉。
   if (refs.promptTemplateSaveParamsToggle) {
     refs.promptTemplateSaveParamsToggle.checked = Boolean(template?.params);
   }
@@ -9239,12 +9230,10 @@ function savePromptTemplate(event) {
 
   const existing = getSelectedPromptTemplate();
   const name = refs.promptTemplateNameInput.value.trim() || existing?.name || `模板 ${state.promptTemplates.length + 1}`;
-  const analyzeTitle = refs.promptTemplateAnalyzeTitleToggle?.checked === true;
   const params = refs.promptTemplateSaveParamsToggle?.checked === true ? captureCurrentStudioParams() : null;
   if (existing) {
     existing.name = name;
     existing.prompt = prompt;
-    existing.analyzeTitle = analyzeTitle;
     existing.params = params;
   } else {
     const template = {
@@ -9252,7 +9241,6 @@ function savePromptTemplate(event) {
       name,
       prompt,
       params,
-      analyzeTitle,
     };
     state.promptTemplates.unshift(template);
     state.selectedPromptTemplateId = template.id;
@@ -9314,10 +9302,6 @@ function applyPromptTemplate(templateId = "") {
   refs.promptInput.value = prompt;
   if (template) {
     applyPromptTemplateParams(template.params);
-    state.promptAnalyzeTitle = template.analyzeTitle === true;
-    if (refs.promptTemplateAnalyzeTitleToggle) {
-      refs.promptTemplateAnalyzeTitleToggle.checked = template.analyzeTitle === true;
-    }
   }
   updatePromptCounter();
   setPromptTemplatePopoverOpen(false);
@@ -9584,18 +9568,14 @@ async function startPromptSetGeneration(promptSetId = "") {
     return;
   }
 
+  // 标题是可选输入（#18）：没有标题就正常生成，只是少了标题注入段。
   const productTitle = String(refs.productTitleInput?.value || "").trim();
-  if (!productTitle) {
-    setPromptSetFeedback("请先在生成区域填写产品标题。", "error");
-    showError("产品标题不能为空。");
-    return;
-  }
   state.promptSetGenerating = true;
   setPromptSetFeedback(`正在准备「${promptSet.name}」的 ${templates.length} 个生成任务...`, "busy");
   renderPromptSets();
   try {
     const jobs = templates.map((template) => createJob({
-      prompt: buildTitleAwarePrompt(template.prompt, productTitle, template.analyzeTitle),
+      prompt: buildTitleAwarePrompt(template.prompt, productTitle),
       params: template.params,
       promptTemplateId: template.id,
       promptTemplateName: template.name,

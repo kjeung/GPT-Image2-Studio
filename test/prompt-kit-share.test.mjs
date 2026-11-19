@@ -217,11 +217,30 @@ test("TXT file selection reads content, imports, and resets the picker", async (
   assert.equal(imported, null);
 });
 
-test("title analysis preference survives sharing and import", async () => {
+// #18：标题分析开关随票退役——新码不再写它，但旧码（5 元组 t[4]）必须仍能导入。
+test("share codes no longer carry the retired title toggle but still accept it", async () => {
   const kit = structuredClone(sharedKit);
   kit.templates[0].analyzeTitle = true;
-  kit.templates[1].analyzeTitle = false;
   const decoded = await decodePromptKitSharePayload(await encodePromptKitSharePayload(kit));
-  assert.equal(decoded.templates[0].analyzeTitle, true);
-  assert.ok(!decoded.templates[1].analyzeTitle);
+  assert.ok(!("analyzeTitle" in decoded.templates[0]), "新码不得再写出 analyzeTitle");
+  assert.deepEqual(decoded.templates[0].params, sharedKit.templates[0].params, "参数仍要完整往返");
+
+  // 手工拼一条 #18 之前格式的码：t 的第 5 位是 analyzeTitle。
+  const payload = {
+    v: 1,
+    t: sharedKit.templates.map((template, index) => [
+      template.id,
+      template.name,
+      template.prompt,
+      template.params || null,
+      index === 0,
+    ]),
+    s: [],
+    a: ["", "", "", null, false, ""],
+  };
+  const code = `PROMPT-KIT.V1.b64.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+  const parsed = await decodePromptKitSharePayload(parsePromptKitShareCode(code));
+  assert.equal(parsed.templates.length, sharedKit.templates.length, "旧分享码必须仍能导入");
+  assert.ok(!("analyzeTitle" in parsed.templates[0]), "已退役的字段读入即丢弃");
+  assert.deepEqual(parsed.templates[0].params, sharedKit.templates[0].params);
 });

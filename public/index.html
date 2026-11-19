@@ -393,9 +393,9 @@
                   </label>
 
                   <label class="compact-field" data-prompt-mode-block>
-                    <span>产品标题（必填）</span>
+                    <span>产品标题</span>
                     <textarea id="productTitleInput" rows="3" placeholder="填写当前产品标题，用于结合标题分析核心卖点" aria-describedby="productTitleHint"></textarea>
-                    <small id="productTitleHint">提示词勾选“结合标题分析”后，每次生成使用此处的最新标题。</small>
+                    <small id="productTitleHint">选填：填写后每次生成都会带上此标题分析核心卖点；留空则不带标题。</small>
                   </label>
                 </div>
 
@@ -3866,11 +3866,6 @@
               </label>
 
               <label class="prompt-template-params-toggle">
-                <input id="promptTemplateAnalyzeTitleToggle" type="checkbox">
-                <span>此提示词结合标题分析（每次生成使用当前产品标题）</span>
-              </label>
-
-              <label class="prompt-template-params-toggle">
                 <input id="promptTemplateSaveParamsToggle" type="checkbox">
                 <span>连同当前参数一起保存（比例 / 分辨率 / 输出格式 / 思考等级）</span>
               </label>
@@ -4020,6 +4015,6 @@
 
     <div class="app-tooltip" id="appTooltip" role="tooltip" popover="manual"></div>
 
-    <script type="module" src="./app.js?v=20261103-current-suite-1-batch-pills-1"></script>
+    <script type="module" src="./app.js?v=20261119-title-optional-1"></script>
   </body>
 </html>

@@ -31,7 +31,8 @@ const generationLogPanelPath = new URL("../lib/generation-log-panel.mjs", import
 const generationLogStorePath = new URL("../lib/generation-log-store.mjs", import.meta.url);
 const pptAnalysisClientPath = new URL("../lib/ppt-analysis-client.mjs", import.meta.url);
 const stylesAssetVersion = "20261103-current-suite-1";
-const appAssetVersion = "20261103-current-suite-1";
+// #18 改动了 app.js，缓存令牌必须跟着换，否则浏览器继续加载旧脚本。
+const appAssetVersion = "20261119-title-optional-1";
 const pptModuleAssetVersion = "20260527-density-overlap-1";
 const creationQueueModuleAssetVersion = "20261102-creation-render-1";
 const quickBlendModuleAssetVersion = "20260928-aspect-ratio-value-only-1";
@@ -6430,9 +6431,9 @@ test("prompt set generation registers every job with the filmstrip session", asy
     showError: () => {},
     getSelectedPromptSet: () => ({ id: "set-a", name: "套图 A", templateIds: ["t1", "t2", "t3"] }),
     getPromptSetDraftTemplates: () => [
-      { id: "t1", name: "主图", prompt: "main", analyzeTitle: false, params: {} },
-      { id: "t2", name: "卖点", prompt: "benefit", analyzeTitle: false, params: {} },
-      { id: "t3", name: "场景", prompt: "usage", analyzeTitle: false, params: {} },
+      { id: "t1", name: "主图", prompt: "main", params: {} },
+      { id: "t2", name: "卖点", prompt: "benefit", params: {} },
+      { id: "t3", name: "场景", prompt: "usage", params: {} },
     ],
     resolvePromptSetTemplates: (set, templates) => templates,
     buildTitleAwarePrompt: (prompt) => prompt,

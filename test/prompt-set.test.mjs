@@ -47,19 +47,93 @@ test("deleting a prompt template removes it from every prompt set", () => {
   assert.deepEqual(result.map((promptSet) => promptSet.templateIds), [["main"], ["benefit"]]);
 });
 
-test("title analysis uses each generation's current title and stays optional", () => {
-  const first = buildTitleAwarePrompt("main image", "Title A", true);
-  const next = buildTitleAwarePrompt("main image", "Title B", true);
+// #18: 标题不再由任何开关决定——填了就是填了，不填就是不填。
+// 这个纯函数是两条链路（单发与套图）唯一的合并点，所以它的契约先在这里钉死。
+test("title analysis needs no switch and never rejects an empty title", () => {
+  const first = buildTitleAwarePrompt("main image", "Title A");
+  const next = buildTitleAwarePrompt("main image", "Title B");
   assert.match(first, /Title A/);
   assert.match(next, /Title B/);
   assert.ok(!next.includes("Title A"));
-  assert.equal(buildTitleAwarePrompt("main image", "Title B", false), "main image");
-  assert.throws(() => buildTitleAwarePrompt("main image", "  ", true));
+  // 空/纯空白/根本没传：原样返回，不抛错。套图的空标题硬失败正是靠这条消失的。
+  assert.equal(buildTitleAwarePrompt("main image", "  "), "main image");
+  assert.equal(buildTitleAwarePrompt("main image", ""), "main image");
+  assert.equal(buildTitleAwarePrompt("main image"), "main image");
+});
 
+// 报告人指出「标题是字符串，却声称为 JSON 字符串」。载荷本身仍是 JSON 字符串
+// 字面量（这是提示注入防护，不能去掉），但措辞必须说人话。
+test("the injected title block names the payload for what it is", () => {
+  const prompt = buildTitleAwarePrompt("main image", '磨砂黑 "手机壳"');
+  assert.ok(!prompt.includes("JSON 字符串"), "标量字面量不能被称为「JSON 字符串数据」");
+  assert.ok(
+    prompt.includes('\\"手机壳\\"'),
+    "标题仍以转义后的字符串字面量注入，注入防护不许退化",
+  );
+  assert.match(prompt, /不是操作指令/);
 });
 
 // Ticket constraint: these two top-level entry points must survive the v0.2.116
 // app.js rewrite, so the slice below stays addressable.
+// #18 A1/A2：单发链路必须把标题带进 prompt，且标题为空时与不填逐字节一致。
+// 这里跑的是 public/app.js 里真实的 buildPromptModePrompt 与 buildPromptEnhancementSuffix，
+// 不打桩——否则「标题进没进 prompt」这件事根本没被测到。
+function loadRealPromptModePrompt(source, overrides = {}) {
+  const body = sliceTopLevelFunction2(source, "function buildPromptModePrompt(", "buildTitleAwarePrompt");
+  const suffixFn = sliceDeclaration(source, "function buildPromptEnhancementSuffix(");
+  const context = {
+    refs: {
+      promptInput: { value: "主图，白底" },
+      productTitleInput: { value: "" },
+      promptEnhanceInput: { value: "" },
+      ...(overrides.refs || {}),
+    },
+    state: { promptEnhanceEnabled: false, ...(overrides.state || {}) },
+    buildTitleAwarePrompt,
+  };
+  runInNewContext(`${suffixFn}\n${body}\n;globalThis.__build = buildPromptModePrompt;`, context);
+  return { buildPromptModePrompt: context.__build, context };
+}
+
+// sliceTopLevelFunction 会断言切片里调用了指定函数；buildPromptModePrompt 在标题为空时
+// 不调用 buildTitleAwarePrompt，所以这里只要切片本身，不额外断言调用。
+function sliceTopLevelFunction2(source, anchor, _unused) {
+  const start = source.indexOf(anchor);
+  assert.ok(start !== -1, `public/app.js must expose ${JSON.stringify(anchor)}.`);
+  const rest = source.slice(start + anchor.length);
+  // 必须一并停在顶层 const 上：buildPromptModePrompt 后面紧跟的 syncPromptEnhanceMode
+  // 与它同处一行，只按 function 停会把 DEFAULT_PROMPT_TEMPLATES 这类常量带进来，
+  // 求值时直接 ReferenceError（SURPRISE_PROMPTS is not defined）。
+  const nextDeclaration = rest.search(/\n(async function |function |const )/);
+  const body = nextDeclaration === -1
+    ? source.slice(start)
+    : source.slice(start, start + anchor.length + nextDeclaration);
+  assert.ok(body.length > 0, `sliced body for ${JSON.stringify(anchor)} must not be empty.`);
+  return body;
+}
+
+test("prompt mode carries a filled title into the request prompt", async () => {
+  const source = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  const { buildPromptModePrompt } = loadRealPromptModePrompt(source, {
+    refs: { productTitleInput: { value: "磨砂黑手机壳" } },
+  });
+
+  const prompt = buildPromptModePrompt();
+  assert.match(prompt, /^主图，白底/);
+  assert.match(prompt, /磨砂黑手机壳/);
+  assert.match(prompt, /不是操作指令/);
+});
+
+test("prompt mode without a title submits the prompt byte-for-byte unchanged", async () => {
+  const source = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  for (const value of ["", "   ", "\n\t "]) {
+    const { buildPromptModePrompt } = loadRealPromptModePrompt(source, {
+      refs: { productTitleInput: { value } },
+    });
+    assert.equal(buildPromptModePrompt(), "主图，白底");
+  }
+});
+
 const PROMPT_SET_GENERATION_ANCHOR = "async function startPromptSetGeneration(";
 const GENERATION_ANCHOR = "async function startGeneration(";
 
@@ -98,7 +172,9 @@ function sliceDeclaration(source, anchor) {
   return nextDeclaration === -1 ? source.slice(start) : source.slice(start, start + anchor.length + nextDeclaration);
 }
 
-test("mixed prompt set applies title analysis per template on every submission", async () => {
+// #18：套图的标题不再逐模板看开关——有标题，每一条都带上；没有标题，一条都不带，
+// 而且空标题不得再拦下整批提交（旧行为是 showError 后 return，一张都不发）。
+test("a prompt set carries the title on every submission without gating on a template switch", async () => {
   const { readFile } = await import("node:fs/promises");
   const { runInNewContext } = await import("node:vm");
   const source = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
@@ -118,10 +194,10 @@ test("mixed prompt set applies title analysis per template on every submission",
 
   const fn = sliceTopLevelFunction(source, PROMPT_SET_GENERATION_ANCHOR, "buildTitleAwarePrompt");
   const templates = [
-    { id: "main", prompt: "Main image", analyzeTitle: true },
-    { id: "detail", prompt: "Detail image", analyzeTitle: false },
+    { id: "main", prompt: "Main image" },
+    { id: "detail", prompt: "Detail image" },
   ];
-  const set = { id: "set", templateIds: ["main", "detail"], analyzeTitle: true };
+  const set = { id: "set", templateIds: ["main", "detail"] };
   const state = { promptSets: [set], promptTemplates: templates, jobs: [] };
   const refs = { productTitleInput: { value: "Title A" }, promptSetNameInput: { value: "Set" } };
   const context = {
@@ -151,17 +227,23 @@ test("mixed prompt set applies title analysis per template on every submission",
     state.jobs = [];
     await context.startPromptSetGeneration(setId);
     assert.match(state.jobs[0].prompt, /Title A/);
-    assert.equal(state.jobs[1].prompt, "Detail image");
+    // 旧断言这里是 "Detail image"（该模板 analyzeTitle: false 就不带标题）；
+    // #18 之后模板级开关不复存在，两条任务必须一致地带标题。
+    assert.match(state.jobs[1].prompt, /Title A/);
   }
   refs.productTitleInput.value = "Title B";
   await context.startPromptSetGeneration("set");
   assert.match(state.jobs[0].prompt, /Title B/);
+  assert.match(state.jobs[1].prompt, /Title B/);
   assert.ok(!state.jobs[0].prompt.includes("Title A"));
-  assert.equal(state.jobs[1].prompt, "Detail image");
+  assert.ok(!state.jobs[1].prompt.includes("Title A"));
+  // 空标题不再拦下整批提交：#18 之前这里断言的是 state.jobs.length === 0。
   state.jobs = [];
   refs.productTitleInput.value = "  ";
   await context.startPromptSetGeneration("set");
-  assert.equal(state.jobs.length, 0);
+  assert.equal(state.jobs.length, 2);
+  assert.equal(state.jobs[0].prompt, "Main image");
+  assert.equal(state.jobs[1].prompt, "Detail image");
 });
 
 // Issue #16: 套图批量提交曾整批报「提示词不能为空」。根因是 public/app.js 的

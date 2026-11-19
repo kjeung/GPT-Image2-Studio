@@ -82,15 +82,18 @@ test("the gallery download control cannot be mistaken for a delete control", asy
   assert.doesNotMatch(tag, /删除/, "the download control must not be labelled as a delete");
 });
 
-test("prompt template normalization keeps shared params and the title toggle", async () => {
+test("prompt template normalization keeps shared params and drops the retired title toggle", async () => {
   const app = await readApp();
 
-  // Dropping these two fields is the silent data loss the research notes warned
-  // about: a shared template would import without its params or analyzeTitle.
+  // 参数仍要保住——丢了就是静默数据损失。
   assert.match(
     app,
-    /function normalizePromptTemplate\(template, index = 0\) \{[\s\S]*params: normalizePromptTemplateParams\(template\?\.params\),[\s\S]*analyzeTitle: template\?\.analyzeTitle === true,/,
+    /function normalizePromptTemplate\(template, index = 0\) \{[\s\S]*params: normalizePromptTemplateParams\(template\?\.params\),/,
   );
+  // 标题分析开关已在 #18 取消（有标题就带入），归一化不得再保留这个死字段。
+  const normalize = app.slice(app.indexOf("function normalizePromptTemplate(template, index = 0) {"));
+  const body = normalize.slice(0, normalize.indexOf("\n}\n"));
+  assert.ok(!body.includes("analyzeTitle"), "normalizePromptTemplate must not keep the retired analyzeTitle field");
 });
 
 test("prompt set generation is not reachable through native form validation", async () => {
@@ -108,6 +111,20 @@ test("prompt set generation is not reachable through native form validation", as
       "the fork-only product title must not gate the shared generate form",
     );
   }
+});
+
+// #18 A5/A6：标题是可选输入，界面上不能再说它是必填，也不能再留一个说了不做的开关。
+test("the product title is optional and carries no title-analysis switch", async () => {
+  const app = await readApp();
+  const html = await readFile(htmlPath, "utf8");
+
+  const block = html.match(/<label class="compact-field" data-prompt-mode-block>\s*<span>([^<]*)<\/span>\s*<textarea id="productTitleInput"[\s\S]*?<\/label>/);
+  assert.ok(block, "the product title block must stay addressable");
+  assert.ok(!block[1].includes("必填"), "产品标题不得再被标成必填");
+  assert.ok(/选填/.test(html), "标题提示文案要说明它是选填");
+
+  assert.ok(!html.includes("promptTemplateAnalyzeTitleToggle"), "模板面板的标题分析勾选框必须移除");
+  assert.ok(!app.includes("promptAnalyzeTitle"), "state.promptAnalyzeTitle 必须彻底退役");
 });
 
 test("every module the browser loads is on the public-lib sync list", async () => {
